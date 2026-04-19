@@ -1,67 +1,93 @@
-#!/usr/bin/env bash
-# STEP 3 — Run ONCE on fresh Ubuntu 22.04 EC2 instance
-# scp this project to EC2 first, then run this script
-set -euo pipefail
+#!/bin/bash
+set -e
 
-APP_DIR="/home/ubuntu/momentum-watchlist"
-SERVICE="momentum-watchlist"
+APP_DIR="/home/ec2-user/momentum-watchlist"
+APP_USER="ec2-user"
 
-echo "=== [1/5] Installing Docker ==="
-sudo apt-get update -y
-sudo apt-get install -y ca-certificates curl gnupg
-sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
-  | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-sudo chmod a+r /etc/apt/keyrings/docker.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-  https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
-  | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-sudo apt-get update -y
-sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-sudo usermod -aG docker ubuntu
-echo "Docker installed: $(docker --version)"
+echo "=== [1/5] Installing Docker (Amazon Linux) ==="
+
+sudo yum update -y
+
+# Install docker if not exists
+if ! command -v docker &> /dev/null; then
+  sudo amazon-linux-extras install docker -y 2>/dev/null || true
+  sudo yum install -y docker
+  sudo systemctl enable docker
+  sudo systemctl start docker
+  sudo usermod -aG docker $APP_USER
+fi
+
+echo "Docker: $(docker --version)"
 
 
 echo ""
-echo "=== [2/5] Installing AWS CLI ==="
-curl -sf "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
-unzip -q /tmp/awscliv2.zip -d /tmp/
-sudo /tmp/aws/install --update
-rm -rf /tmp/awscliv2.zip /tmp/aws
+echo "=== [2/5] Installing Docker Compose ==="
+
+if ! command -v docker-compose &> /dev/null; then
+  sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" \
+    -o /usr/local/bin/docker-compose
+  sudo chmod +x /usr/local/bin/docker-compose
+fi
+
+echo "Docker Compose: $(docker-compose --version)"
+
+
+echo ""
+echo "=== [3/5] Installing AWS CLI (if missing) ==="
+
+if ! command -v aws &> /dev/null; then
+  curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+  unzip -q /tmp/awscliv2.zip -d /tmp/
+  sudo /tmp/aws/install --update
+  rm -rf /tmp/aws /tmp/awscliv2.zip
+fi
+
 echo "AWS CLI: $(aws --version)"
 
 
 echo ""
-echo "=== [3/5] Building Docker image ==="
-cd "${APP_DIR}"
+echo "=== [4/5] Build Docker image ==="
+
+cd "$APP_DIR"
+
 sudo docker build -t momentum-watchlist:latest .
-echo "Image built"
 
 
 echo ""
-echo "=== [4/5] Starting container ==="
-sudo docker compose up -d
+echo "=== [5/5] Start container ==="
+
+# Use docker compose (v2 fallback safe)
+sudo docker compose up -d || sudo docker-compose up -d
+
 sleep 5
-sudo docker compose ps
+sudo docker ps
 
 
 echo ""
-echo "=== [5/5] Health check ==="
+echo "=== [6/6] Health check ==="
+
 for i in 1 2 3 4 5; do
-  STATUS=$(curl -sf http://localhost:5000/health 2>/dev/null | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('status','fail'))" 2>/dev/null || echo "not ready")
+  STATUS=$(curl -sf http://localhost:5000/health 2>/dev/null \
+    | python3 -c "import sys,json;print(json.load(sys.stdin).get('status','fail'))" \
+    2>/dev/null || echo "not ready")
+
   if [ "$STATUS" = "ok" ]; then
-    echo "Health check PASSED"
+    echo "✅ Health check PASSED"
     break
   fi
-  echo "  Attempt $i/5 — waiting..."
+
+  echo "Attempt $i/5 waiting..."
   sleep 4
 done
 
-PUBLIC_IP=$(curl -sf http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null || echo "unknown")
+
+PUBLIC_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
+
 echo ""
-echo "Container running on http://${PUBLIC_IP}:5000"
-echo "  curl http://${PUBLIC_IP}:5000/health"
+echo "🚀 Container running at:"
+echo "http://${PUBLIC_IP}:5000"
+
 echo ""
 echo "Useful commands:"
-echo "  sudo docker compose logs -f api"
-echo "  sudo docker compose restart api"
+echo "  sudo docker compose logs -f"
+echo "  sudo docker compose restart"

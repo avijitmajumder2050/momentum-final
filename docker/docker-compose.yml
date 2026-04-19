@@ -3,36 +3,40 @@ version: "3.9"
 services:
   api:
     build:
-      context: ../backend
-      dockerfile: ../docker/Dockerfile
+      context: ..
+      dockerfile: docker/Dockerfile
     image: momentum-watchlist:latest
     container_name: momentum-api
     restart: unless-stopped
+
     ports:
       - "5000:5000"
+
     environment:
-      # SSM is the source of truth on EC2 — these are only used locally
-      - USE_SSM=${USE_SSM:-true}
-      - AWS_REGION=${AWS_REGION:-ap-south-1}
-      - MAX_LOSS=${MAX_LOSS:-1000}
-      - DEPLOY_PCT=${DEPLOY_PCT:-0.30}
-      - MONITOR_INTERVAL=${MONITOR_INTERVAL:-15}
-      # Local dev only (.env file, USE_SSM=false)
-      - apiKey=${apiKey:-}
-      - totpKey=${totpKey:-}
-      - userid=${userid:-}
-      - pin=${pin:-}
-      - S3_BUCKET=${S3_BUCKET:-your-momentum-bucket}
-      - TRADING_CAPITAL=${TRADING_CAPITAL:-100000}
-    volumes:
-      # For local dev: mount backend code for hot-reload
-      - ../backend:/app
+      USE_SSM: ${USE_SSM:-true}
+      AWS_REGION: ${AWS_REGION:-ap-south-1}
+      MAX_LOSS: ${MAX_LOSS:-1000}
+      DEPLOY_PCT: ${DEPLOY_PCT:-0.30}
+      MONITOR_INTERVAL: ${MONITOR_INTERVAL:-15}
+      apiKey: ${apiKey:-}
+      totpKey: ${totpKey:-}
+      userid: ${userid:-}
+      pin: ${pin:-}
+      S3_BUCKET: ${S3_BUCKET:-your-momentum-bucket}
+      TRADING_CAPITAL: ${TRADING_CAPITAL:-100000}
+
+    # ❌ REMOVE in EC2 (important)
+    # volumes:
+    #   - ../backend:/app
+
+    # ✅ FIXED HEALTHCHECK
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
+      test: ["CMD-SHELL", "curl -f http://localhost:5000/health || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
     logging:
       driver: "json-file"
       options:
