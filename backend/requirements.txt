@@ -7,3 +7,6 @@ pandas>=2.0.0
 python-dotenv>=1.0.0
 gunicorn>=21.2.0
 pytz>=2024.1
+logzero
+websocket-client
+rich
