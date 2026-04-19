@@ -43,9 +43,6 @@ class AngelBroker:
         self.token_map: dict = {}
         self.reload_token_map()
         self._login()
-        self._funds_cache = None
-        self._funds_last  = 0
-        self._funds_ttl   = 5   # seconds (tune: 5–15 sec)
 
     # ── SSM ───────────────────────────────────────────────────────────────────
     def _ssm_param(self, name: str) -> str:
@@ -359,31 +356,14 @@ class AngelBroker:
         return (d.get("data") or []) if d.get("status") else []
 
     def get_funds(self) -> dict:
-        now = time.time()
-
-        # ✅ return cache if valid
-        if self._funds_cache and (now - self._funds_last < self._funds_ttl):
-            return self._funds_cache
-
         try:
             d = self._call(self._obj.rmsLimit)
-
             if d.get("status") and d.get("data"):
-                result = {
-                    "status": "success",
-                    "available_balance": float(d["data"].get("net", 0) or 0)
-                }
-
-                # ✅ update cache
-                self._funds_cache = result
-                self._funds_last  = now
-
-                return result
-
+                return {"status":"success",
+                        "available_balance":float(d["data"].get("net",0) or 0)}
         except Exception as e:
             log.warning("[Funds] %s", e)
-
-        return {"status": "error", "available_balance": 0.0}
+        return {"status":"error","available_balance":0.0}
 
     def get_today_pnl(self) -> dict:
         realized = unrealized = 0.0
