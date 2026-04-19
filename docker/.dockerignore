@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+.env.*
+!.env.example
+venv/
+.venv/
+uploads/*.csv
+*.log
+.git/
+.gitignore
+README*
+tests/

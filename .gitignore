@@ -1,0 +1,14 @@
+# environment variables
+.env
+backend/.env
+
+# python cache
+__pycache__/
+*.pyc
+
+# logs
+*.log
+
+# venv
+venv/
+.env/
