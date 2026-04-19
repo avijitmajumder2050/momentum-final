@@ -1,23 +1,49 @@
 FROM python:3.11-slim
 
-# Security: run as non-root
+# -----------------------------
+# System deps (required for some libs)
+# -----------------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl ca-certificates build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# -----------------------------
+# Security: non-root user
+# -----------------------------
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 
 WORKDIR /app
 
-# Install dependencies first (layer cache)
+# -----------------------------
+# Copy & validate requirements
+# -----------------------------
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# 🔴 Fail fast if missing
+RUN test -f requirements.txt || (echo "❌ requirements.txt missing" && exit 1)
+
+# Install deps
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
+
+# -----------------------------
+# Copy app
+# -----------------------------
 COPY . .
 
-# Create uploads dir (not used for main storage — S3 is primary)
-RUN mkdir -p uploads && chown -R appuser:appuser /app
+# -----------------------------
+# Permissions
+# -----------------------------
+RUN mkdir -p uploads \
+    && chown -R appuser:appuser /app
 
 USER appuser
 
-# Gunicorn: 2 workers, 120s timeout for Angel One API calls
+# -----------------------------
+# Runtime
+# -----------------------------
+EXPOSE 5000
+
 CMD ["gunicorn", \
      "--workers", "2", \
      "--bind", "0.0.0.0:5000", \
@@ -27,7 +53,8 @@ CMD ["gunicorn", \
      "--log-level", "info", \
      "app:app"]
 
-EXPOSE 5000
-
-HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+# -----------------------------
+# Healthcheck
+# -----------------------------
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=5 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')" || exit 1
