@@ -53,59 +53,59 @@ class AngelBroker:
 
     # ── Token map ─────────────────────────────────────────────────────────────
     def reload_token_map(self) -> None:
-    try:
-        obj = self._s3.get_object(Bucket=self.bucket, Key=TOKEN_S3_KEY)
-        df  = pd.read_csv(io.BytesIO(obj["Body"].read()))
+        try:
+            obj = self._s3.get_object(Bucket=self.bucket, Key=TOKEN_S3_KEY)
+            df  = pd.read_csv(io.BytesIO(obj["Body"].read()))
 
-        # ✅ Normalize everything
-        df.columns = [c.strip().lower() for c in df.columns]
+            # ✅ Normalize everything
+            df.columns = [c.strip().lower() for c in df.columns]
 
-        df["symbol"] = (
-            df["symbol"]
-            .astype(str)
-            .str.upper()
-            .str.strip()
-            .str.replace(r"\s+", "", regex=True)   # remove hidden spaces
-        )
+            df["symbol"] = (
+                df["symbol"]
+                .astype(str)
+                .str.upper()
+                .str.strip()
+                .str.replace(r"\s+", "", regex=True)   # remove hidden spaces
+            )
 
-        df["token"] = df["token"].astype(str).str.strip()
+            df["token"] = df["token"].astype(str).str.strip()
 
-        self.token_map = {
-            row["symbol"]: {
+            self.token_map = {
+                row["symbol"]: {
                 "token": row["token"],
                 "margin": float(row.get("margin", 1))
-            }
+                }
             for _, row in df.iterrows()
-        }
+            }
 
-        log.info("[TokenMap] Loaded %d symbols", len(self.token_map))
+            log.info("[TokenMap] Loaded %d symbols", len(self.token_map))
 
-        # 🔍 DEBUG sample
-        sample = list(self.token_map.keys())[:10]
-        log.info("[TokenMap] Sample keys: %s", sample)
+            # 🔍 DEBUG sample
+            sample = list(self.token_map.keys())[:10]
+            log.info("[TokenMap] Sample keys: %s", sample)
 
-    except Exception as e:
-        log.error("[TokenMap] Load failed: %s", e)
+        except Exception as e:
+            log.error("[TokenMap] Load failed: %s", e)
 
     def get_token(self, symbol: str) -> Optional[str]:
-    clean_symbol = (
-        str(symbol)
-        .upper()
-        .strip()
-        .replace(" ", "")
-    )
+        clean_symbol = (
+            str(symbol)
+            .upper()
+            .strip()
+            .replace(" ", "")
+        )
 
-    e = self.token_map.get(clean_symbol)
+        e = self.token_map.get(clean_symbol)
 
-    if e:
-        return e["token"]
+        if e:
+            return e["token"]
 
-    log.warning(
-        "[TokenMap] Not found: raw='%s' clean='%s'",
-        symbol, clean_symbol
-    )
+        log.warning(
+            "[TokenMap] Not found: raw='%s' clean='%s'",
+            symbol, clean_symbol
+        )
 
-    return None
+        return None
 
     def get_margin(self, symbol: str) -> float:
         return self.token_map.get(symbol.upper(), {}).get("margin", 1.0)
