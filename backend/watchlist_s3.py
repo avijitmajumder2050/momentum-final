@@ -26,7 +26,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 log       = logging.getLogger(__name__)
-S3_BUCKET = os.getenv("S3_BUCKET", "dhan-trading-data")
+S3_BUCKET = os.getenv("S3_BUCKET", "momentum-watchlist-bucket")
 S3_KEY    = "angel/watchlist.csv"
 
 HEADERS = [

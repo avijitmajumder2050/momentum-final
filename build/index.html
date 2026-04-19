@@ -1,320 +1,251 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Momentum Terminal</title>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
-<style>
-:root{
-  --bg:#080c10;--bg2:#0d1117;--bg3:#141b24;--border:#1e2d3d;
-  --amber:#f0a500;--adim:#7a5200;--green:#00d084;--gdim:#004d30;
-  --red:#ff4d6d;--rdim:#5c001a;--blue:#3b9eff;--bdim:#0a2a50;
-  --muted:#4a6070;--text:#c9d8e8;--text2:#8faabf;
-  --mono:'IBM Plex Mono',monospace;--sans:'Space Grotesk',sans-serif;
-}
-*{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:13px}
-body::before{content:'';position:fixed;inset:0;
-  background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.04) 2px,rgba(0,0,0,.04) 4px);
-  pointer-events:none;z-index:9999}
-
-/* header */
-header{display:flex;justify-content:space-between;align-items:center;
-  padding:10px 20px;border-bottom:1px solid var(--border);background:var(--bg2);
-  position:sticky;top:0;z-index:100;flex-wrap:wrap;gap:8px}
-.logo{font-family:var(--sans);font-size:15px;font-weight:700;
-  letter-spacing:2px;color:var(--amber);text-transform:uppercase}
-.logo span{color:var(--text2);font-weight:400}
-.hdr-r{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-#clock{font-size:11px;color:var(--text2)}
-.mkt{display:inline-flex;align-items:center;gap:4px;font-size:10px;
-  padding:2px 8px;border-radius:10px;font-weight:600;text-transform:uppercase}
-.mkt.open{background:var(--gdim);color:var(--green);border:1px solid var(--green)}
-.mkt.closed{background:var(--rdim);color:var(--red);border:1px solid var(--red)}
-.mkt::before{content:'';width:5px;height:5px;border-radius:50%;background:currentColor}
-
-/* toggles */
-.tog-wrap{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text2)}
-.tog{width:30px;height:17px;border-radius:9px;background:var(--bg3);
-  border:1px solid var(--border);cursor:pointer;position:relative;transition:background .15s;flex-shrink:0}
-.tog.on{background:var(--adim);border-color:var(--amber)}
-.tog::after{content:'';position:absolute;top:2px;left:2px;width:11px;height:11px;
-  border-radius:50%;background:var(--muted);transition:transform .15s,background .15s}
-.tog.on::after{transform:translateX(13px);background:var(--amber)}
-
-/* buttons */
-.btn{font-family:var(--mono);font-size:11px;padding:5px 12px;border-radius:4px;
-  cursor:pointer;border:1px solid;text-transform:uppercase;letter-spacing:1px;transition:all .15s}
-.btn:disabled{opacity:.4;cursor:not-allowed}
-.btn-a{color:var(--amber);border-color:var(--adim);background:transparent}
-.btn-a:hover:not(:disabled){background:var(--adim)}
-.btn-p{color:var(--bg);border-color:var(--amber);background:var(--amber)}
-.btn-p:hover:not(:disabled){filter:brightness(1.1)}
-.btn-sm{padding:3px 7px;font-size:10px}
-.btn-g{color:var(--green);border-color:var(--gdim);background:transparent}
-.btn-g:hover:not(:disabled){background:var(--gdim)}
-.btn-r{color:var(--red);border-color:var(--rdim);background:transparent}
-.btn-r:hover:not(:disabled){background:var(--rdim)}
-
-/* stats */
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));
-  gap:1px;background:var(--border);border-bottom:1px solid var(--border)}
-.stat{background:var(--bg2);padding:12px 16px}
-.slbl{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:3px}
-.sval{font-size:19px;font-weight:600;line-height:1.1}
-.shnt{font-size:10px;color:var(--text2);margin-top:2px}
-.cg{color:var(--green)}.cr{color:var(--red)}.cb{color:var(--blue)}.ca{color:var(--amber)}
-
-/* add panel */
-.add-panel{background:var(--bg2);border-bottom:1px solid var(--border);padding:10px 20px}
-.add-row{display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap}
-.fld{display:flex;flex-direction:column;gap:4px}
-.fld label{font-size:9px;letter-spacing:.5px;color:var(--muted);text-transform:uppercase}
-.inp{font-size:12px;padding:6px 10px;border-radius:4px;border:1px solid var(--border);
-  background:var(--bg);color:var(--text);font-family:var(--mono);outline:none;transition:border-color .15s}
-.inp:focus{border-color:var(--amber)} .inp::placeholder{color:var(--muted)}
-.inp.wide{width:155px}.inp.sm{width:100px}
-.srch-wrap{position:relative}
-.srch-dd{position:absolute;top:100%;left:0;min-width:280px;background:var(--bg3);
-  border:1px solid var(--border);border-top:none;z-index:200;
-  max-height:180px;overflow-y:auto;display:none}
-.srch-item{padding:7px 12px;cursor:pointer;border-bottom:1px solid var(--border);
-  display:flex;justify-content:space-between;font-size:11px}
-.srch-item:hover{background:var(--bg2);color:var(--amber)}
-.stok{color:var(--muted);font-size:10px}
-
-/* section headers */
-.section-hdr{display:flex;align-items:center;justify-content:space-between;
-  padding:9px 20px;border-bottom:1px solid var(--border);background:var(--bg3)}
-.section-title{font-family:var(--sans);font-size:12px;font-weight:700;
-  letter-spacing:1px;text-transform:uppercase;color:var(--text2)}
-.section-badge{font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600}
-.sb-watch{background:var(--bdim);color:var(--blue)}
-.sb-active{background:var(--gdim);color:var(--green)}
-
-/* tables */
-.tbl-wrap{overflow-x:auto;background:var(--bg2)}
-table{width:100%;border-collapse:collapse;table-layout:fixed}
-thead th{font-size:9px;font-weight:600;color:var(--muted);text-transform:uppercase;
-  letter-spacing:.5px;padding:8px 10px;text-align:left;
-  border-bottom:1px solid var(--border);background:var(--bg3);
-  white-space:nowrap;position:sticky;top:0}
-tbody tr{border-bottom:1px solid var(--border);transition:background .1s}
-tbody tr:hover{background:var(--bg3)}
-tbody tr.brk{background:rgba(240,165,0,.04);border-left:2px solid var(--amber)}
-tbody tr.actv{background:rgba(0,208,132,.04);border-left:2px solid var(--green)}
-tbody tr.trail{background:rgba(59,158,255,.04);border-left:2px solid var(--blue)}
-td{padding:7px 10px;vertical-align:middle;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-
-/* sym cell */
-.sym-cell{display:flex;align-items:center;gap:7px}
-.sym-av{width:26px;height:26px;border-radius:6px;background:var(--bdim);
-  display:flex;align-items:center;justify-content:center;
-  font-size:10px;font-weight:600;color:var(--blue);flex-shrink:0}
-.sym-name{font-weight:600;font-size:13px}
-
-/* badges */
-.bdg{display:inline-block;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600}
-.b-yes{background:var(--adim);color:var(--amber)}
-.b-no{background:transparent;color:var(--muted);border:1px solid var(--border)}
-.b-buy{background:var(--bdim);color:var(--blue)}
-.b-auto{background:var(--gdim);color:var(--green)}
-.b-brk{background:rgba(240,165,0,.2);color:var(--amber)}
-.b-trail{background:rgba(59,158,255,.2);color:var(--blue)}
-.b-tgt{background:var(--gdim);color:var(--green)}
-.b-sl{background:var(--rdim);color:var(--red)}
-.b-active{background:rgba(0,208,132,.15);color:var(--green)}
-.pct-p{color:var(--green);font-weight:600}.pct-n{color:var(--red);font-weight:600}
-
-/* pnl cell */
-.pnl-pos{color:var(--green);font-weight:600}
-.pnl-neg{color:var(--red);font-weight:600}
-.pnl-zero{color:var(--muted)}
-
-/* ops */
-.ops{display:flex;gap:3px}
-.ob{width:25px;height:25px;border-radius:4px;border:1px solid var(--border);
-  background:transparent;cursor:pointer;display:flex;align-items:center;
-  justify-content:center;font-size:12px;color:var(--muted);transition:all .12s}
-.ob:hover.b{background:var(--gdim);border-color:var(--green);color:var(--green)}
-.ob:hover.d{background:var(--rdim);border-color:var(--red);color:var(--red)}
-
-/* footer */
-.ftr{background:var(--bg2);border-top:1px solid var(--border);
-  padding:7px 20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
-.fi{font-size:10px;color:var(--muted)} .fi b{color:var(--text2);font-weight:500}
-.cbar{flex:1;height:2px;background:var(--border);border-radius:1px;overflow:hidden;min-width:60px}
-.cfill{height:100%;background:var(--amber);border-radius:1px;transition:width 1s linear}
-
-/* toasts */
-#toasts{position:fixed;top:50px;right:16px;z-index:999;display:flex;flex-direction:column;gap:5px;max-width:340px}
-.toast{font-family:var(--mono);font-size:11px;padding:9px 13px;border-radius:4px;
-  border-left:3px solid;background:var(--bg3);animation:slideIn .2s;box-shadow:0 4px 16px rgba(0,0,0,.5)}
-.toast.s{border-color:var(--green);color:var(--green)}
-.toast.e{border-color:var(--red);color:var(--red)}
-.toast.i{border-color:var(--amber);color:var(--amber)}
-.t-t{font-weight:600;margin-bottom:2px}.t-m{color:var(--text2);font-size:10px}
-@keyframes slideIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:none}}
-
-/* modal */
-.overlay{position:fixed;inset:0;background:rgba(0,0,0,.8);
-  display:none;align-items:center;justify-content:center;z-index:500}
-.overlay.on{display:flex}
-.modal{background:var(--bg2);border:1px solid var(--border);
-  border-radius:6px;padding:24px;width:380px;max-width:92vw}
-.modal-h{font-family:var(--sans);font-size:13px;font-weight:700;
-  color:var(--amber);margin-bottom:16px;letter-spacing:1px;text-transform:uppercase}
-.mrow{display:flex;justify-content:space-between;padding:5px 0;
-  border-bottom:1px solid var(--border);font-size:12px}
-.mk{color:var(--muted)}.mv{color:var(--text);font-weight:600}
-.mv.g{color:var(--green)}.mv.r{color:var(--red)}.mv.a{color:var(--amber)}
-.modal-note{font-size:11px;color:var(--text2);margin-top:10px;padding:8px;
-  background:var(--bg3);border-radius:4px;border-left:2px solid var(--amber);line-height:1.6}
-.mbtns{display:flex;gap:8px;margin-top:14px;justify-content:flex-end}
-
-.empty{padding:36px;text-align:center;color:var(--muted);font-size:11px;letter-spacing:1px}
-.spin{display:inline-block;width:8px;height:8px;border:1px solid var(--muted);
-  border-top-color:var(--amber);border-radius:50%;animation:rot .6s linear infinite;margin-right:4px}
-@keyframes rot{to{transform:rotate(360deg)}}
-main{padding-bottom:50px}
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Momentum Terminal</title>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root{
+            --bg:#080c10;--bg2:#0d1117;--bg3:#141b24;--border:#1e2d3d;
+            --amber:#f0a500;--adim:#7a5200;--green:#00d084;--gdim:#004d30;
+            --red:#ff4d6d;--rdim:#5c001a;--blue:#3b9eff;--bdim:#0a2a50;
+            --muted:#4a6070;--text:#c9d8e8;--text2:#8faabf;
+            --mono:'IBM Plex Mono',monospace;--sans:'Space Grotesk',sans-serif;
+        }
+        *{box-sizing:border-box;margin:0;padding:0}
+        body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:13px;line-height:1.4}
+        body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.04) 2px,rgba(0,0,0,.04) 4px);pointer-events:none;z-index:9999}
+        header{display:flex;justify-content:space-between;align-items:center;padding:10px 20px;border-bottom:1px solid var(--border);background:var(--bg2);position:sticky;top:0;z-index:100;flex-wrap:wrap;gap:8px}
+        .logo{font-family:var(--sans);font-size:15px;font-weight:700;letter-spacing:2px;color:var(--amber);text-transform:uppercase}
+        .logo span{color:var(--text2);font-weight:400}
+        .hdr-r{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+        #clock{font-size:11px;color:var(--text2)}
+        .mkt{display:inline-flex;align-items:center;gap:4px;font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600;text-transform:uppercase}
+        .mkt.open{background:var(--gdim);color:var(--green);border:1px solid var(--green)}
+        .mkt.closed{background:var(--rdim);color:var(--red);border:1px solid var(--red)}
+        .mkt::before{content:'';width:5px;height:5px;border-radius:50%;background:currentColor}
+        .tog-wrap{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text2)}
+        .tog{width:30px;height:17px;border-radius:9px;background:var(--bg3);border:1px solid var(--border);cursor:pointer;position:relative;transition:background .15s;flex-shrink:0}
+        .tog.on{background:var(--adim);border-color:var(--amber)}
+        .tog::after{content:'';position:absolute;top:2px;left:2px;width:11px;height:11px;border-radius:50%;background:var(--muted);transition:transform .15s,background .15s}
+        .tog.on::after{transform:translateX(13px);background:var(--amber)}
+        .btn{font-family:var(--mono);font-size:11px;padding:5px 12px;border-radius:4px;cursor:pointer;border:1px solid;text-transform:uppercase;letter-spacing:1px;transition:all .15s}
+        .btn:disabled{opacity:.4;cursor:not-allowed}
+        .btn-a{color:var(--amber);border-color:var(--adim);background:transparent}
+        .btn-a:hover:not(:disabled){background:var(--adim)}
+        .btn-p{color:var(--bg);border-color:var(--amber);background:var(--amber)}
+        .btn-p:hover:not(:disabled){filter:brightness(1.1)}
+        .btn-sm{padding:3px 7px;font-size:10px}
+        .btn-g{color:var(--green);border-color:var(--gdim);background:transparent}
+        .btn-g:hover:not(:disabled){background:var(--gdim)}
+        .btn-r{color:var(--red);border-color:var(--rdim);background:transparent}
+        .btn-r:hover:not(:disabled){background:var(--rdim)}
+        .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:1px;background:var(--border);border-bottom:1px solid var(--border)}
+        .stat{background:var(--bg2);padding:12px 16px}
+        .slbl{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:3px}
+        .sval{font-size:19px;font-weight:600;line-height:1.1}
+        .shnt{font-size:10px;color:var(--text2);margin-top:2px}
+        .cg{color:var(--green)}.cr{color:var(--red)}.cb{color:var(--blue)}.ca{color:var(--amber)}
+        .add-panel{background:var(--bg2);border-bottom:1px solid var(--border);padding:10px 20px}
+        .add-row{display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap}
+        .fld{display:flex;flex-direction:column;gap:4px}
+        .fld label{font-size:9px;letter-spacing:.5px;color:var(--muted);text-transform:uppercase}
+        .inp{font-size:12px;padding:6px 10px;border-radius:4px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-family:var(--mono);outline:none;transition:border-color .15s}
+        .inp:focus{border-color:var(--amber)} .inp::placeholder{color:var(--muted)}
+        .inp.wide{width:155px}.inp.sm{width:100px}
+        .srch-wrap{position:relative}
+        .srch-dd{position:absolute;top:100%;left:0;min-width:280px;background:var(--bg3);border:1px solid var(--border);border-top:none;z-index:200;max-height:180px;overflow-y:auto;display:none}
+        .srch-item{padding:7px 12px;cursor:pointer;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;font-size:11px}
+        .srch-item:hover{background:var(--bg2);color:var(--amber)}
+        .stok{color:var(--muted);font-size:10px}
+        .section-hdr{display:flex;align-items:center;justify-content:space-between;padding:9px 20px;border-bottom:1px solid var(--border);background:var(--bg3)}
+        .section-title{font-family:var(--sans);font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text2)}
+        .section-badge{font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600}
+        .sb-watch{background:var(--bdim);color:var(--blue)}
+        .sb-active{background:var(--gdim);color:var(--green)}
+        .tbl-wrap{overflow-x:auto;background:var(--bg2)}
+        table{width:100%;border-collapse:collapse;table-layout:fixed}
+        thead th{font-size:9px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);background:var(--bg3);white-space:nowrap;position:sticky;top:0}
+        tbody tr{border-bottom:1px solid var(--border);transition:background .1s}
+        tbody tr:hover{background:var(--bg3)}
+        tbody tr.brk{background:rgba(240,165,0,.04);border-left:2px solid var(--amber)}
+        tbody tr.actv{background:rgba(0,208,132,.04);border-left:2px solid var(--green)}
+        tbody tr.trail{background:rgba(59,158,255,.04);border-left:2px solid var(--blue)}
+        td{padding:7px 10px;vertical-align:middle;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .sym-cell{display:flex;align-items:center;gap:7px}
+        .sym-av{width:26px;height:26px;border-radius:6px;background:var(--bdim);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:var(--blue);flex-shrink:0}
+        .sym-name{font-weight:600;font-size:13px}
+        .bdg{display:inline-block;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600}
+        .b-yes{background:var(--adim);color:var(--amber)}
+        .b-no{background:transparent;color:var(--muted);border:1px solid var(--border)}
+        .b-buy{background:var(--bdim);color:var(--blue)}
+        .b-auto{background:var(--gdim);color:var(--green)}
+        .b-brk{background:rgba(240,165,0,.2);color:var(--amber)}
+        .b-trail{background:rgba(59,158,255,.2);color:var(--blue)}
+        .b-tgt{background:var(--gdim);color:var(--green)}
+        .b-sl{background:var(--rdim);color:var(--red)}
+        .b-active{background:rgba(0,208,132,.15);color:var(--green)}
+        .pct-p{color:var(--green);font-weight:600}.pct-n{color:var(--red);font-weight:600}
+        .pnl-pos{color:var(--green);font-weight:600}.pnl-neg{color:var(--red);font-weight:600}.pnl-zero{color:var(--muted)}
+        .ops{display:flex;gap:3px}
+        .ob{width:25px;height:25px;border-radius:4px;border:1px solid var(--border);background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted);transition:all .12s}
+        .ob:hover.b{background:var(--gdim);border-color:var(--green);color:var(--green)}
+        .ob:hover.d{background:var(--rdim);border-color:var(--red);color:var(--red)}
+        .ftr{background:var(--bg2);border-top:1px solid var(--border);padding:7px 20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+        .fi{font-size:10px;color:var(--muted)} .fi b{color:var(--text2);font-weight:500}
+        .cbar{flex:1;height:2px;background:var(--border);border-radius:1px;overflow:hidden;min-width:60px}
+        .cfill{height:100%;background:var(--amber);border-radius:1px;transition:width 1s linear}
+        #toasts{position:fixed;top:50px;right:16px;z-index:999;display:flex;flex-direction:column;gap:5px;max-width:340px}
+        .toast{font-family:var(--mono);font-size:11px;padding:9px 13px;border-radius:4px;border-left:3px solid;background:var(--bg3);animation:slideIn .2s;box-shadow:0 4px 16px rgba(0,0,0,.5)}
+        .toast.s{border-color:var(--green);color:var(--green)}
+        .toast.e{border-color:var(--red);color:var(--red)}
+        .toast.i{border-color:var(--amber);color:var(--amber)}
+        .t-t{font-weight:600;margin-bottom:2px}.t-m{color:var(--text2);font-size:10px}
+        @keyframes slideIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:none}}
+        .overlay{position:fixed;inset:0;background:rgba(0,0,0,.8);display:none;align-items:center;justify-content:center;z-index:500}
+        .overlay.on{display:flex}
+        .modal{background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:24px;width:380px;max-width:92vw}
+        .modal-h{font-family:var(--sans);font-size:13px;font-weight:700;color:var(--amber);margin-bottom:16px;letter-spacing:1px;text-transform:uppercase}
+        .mrow{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px}
+        .mk{color:var(--muted)}.mv{color:var(--text);font-weight:600}
+        .mv.g{color:var(--green)}.mv.r{color:var(--red)}.mv.a{color:var(--amber)}
+        .modal-note{font-size:11px;color:var(--text2);margin-top:10px;padding:8px;background:var(--bg3);border-radius:4px;border-left:2px solid var(--amber);line-height:1.6}
+        .mbtns{display:flex;gap:8px;margin-top:14px;justify-content:flex-end}
+        .empty{padding:36px;text-align:center;color:var(--muted);font-size:11px;letter-spacing:1px}
+        .spin{display:inline-block;width:8px;height:8px;border:1px solid var(--muted);border-top-color:var(--amber);border-radius:50%;animation:rot .6s linear infinite;margin-right:4px}
+        @keyframes rot{to{transform:rotate(360deg)}}
+        main{padding-bottom:50px}
+    </style>
 </head>
 <body>
 
-<!-- Header -->
 <header>
-  <div class="logo">⚡ Momentum <span>Terminal</span></div>
-  <div class="hdr-r">
-    <div class="tog-wrap">
-      <div class="tog" id="autoBuyTog" onclick="toggleAutoBuy()"></div>
-      <span>Auto-buy 9:31+</span>
+    <div class="logo">⚡ Momentum <span>Terminal</span></div>
+    <div class="hdr-r">
+        <div class="tog-wrap">
+            <div class="tog" id="autoBuyTog" onclick="toggleAutoBuy()"></div>
+            <span>Auto-buy 9:31+</span>
+        </div>
+        <div class="tog-wrap">
+            <div class="tog on" id="autoRefTog" onclick="toggleAutoRef()"></div>
+            <span>Auto-refresh</span>
+        </div>
+        <button class="btn btn-a" onclick="triggerScan()">↺ Scan</button>
+        <button class="btn btn-p" id="refBtn" onclick="doRefresh()">↺ Refresh all</button>
+        <span class="mkt closed" id="mktChip">Closed</span>
+        <span id="clock">--:--:--</span>
     </div>
-    <div class="tog-wrap">
-      <div class="tog on" id="autoRefTog" onclick="toggleAutoRef()"></div>
-      <span>Auto-refresh</span>
-    </div>
-    <button class="btn btn-a" onclick="triggerScan()">↺ Scan</button>
-    <button class="btn btn-p" id="refBtn" onclick="doRefresh()">↺ Refresh all</button>
-    <span class="mkt closed" id="mktChip">Closed</span>
-    <span id="clock">--:--:--</span>
-  </div>
 </header>
 
-<!-- Stats bar -->
 <div class="stats">
-  <div class="stat"><div class="slbl">Watchlist</div><div class="sval cb" id="sTot">0</div></div>
-  <div class="stat"><div class="slbl">Breakouts</div><div class="sval ca" id="sBrk">0</div><div class="shnt">above entry</div></div>
-  <div class="stat"><div class="slbl">Active trades</div><div class="sval cg" id="sAct">0</div><div class="shnt">open positions</div></div>
-  <div class="stat"><div class="slbl">Balance</div><div class="sval ca" id="sBal">—</div><div class="shnt">available</div></div>
-  <div class="stat"><div class="slbl">Realized P&amp;L</div><div class="sval" id="sReal">0.00</div></div>
-  <div class="stat"><div class="slbl">Unrealized P&amp;L</div><div class="sval" id="sUnrl">0.00</div></div>
-  <div class="stat"><div class="slbl">Total P&amp;L</div><div class="sval" id="sTpnl">0.00</div><div class="shnt" id="sPnlSub"></div></div>
+    <div class="stat"><div class="slbl">Watchlist</div><div class="sval cb" id="sTot">0</div></div>
+    <div class="stat"><div class="slbl">Breakouts</div><div class="sval ca" id="sBrk">0</div><div class="shnt">above entry</div></div>
+    <div class="stat"><div class="slbl">Active trades</div><div class="sval cg" id="sAct">0</div><div class="shnt">open positions</div></div>
+    <div class="stat"><div class="slbl">Balance</div><div class="sval ca" id="sBal">—</div><div class="shnt">available</div></div>
+    <div class="stat"><div class="slbl">Realized P&amp;L</div><div class="sval" id="sReal">0.00</div></div>
+    <div class="stat"><div class="slbl">Unrealized P&amp;L</div><div class="sval" id="sUnrl">0.00</div></div>
+    <div class="stat"><div class="slbl">Total P&amp;L</div><div class="sval" id="sTpnl">0.00</div><div class="shnt" id="sPnlSub"></div></div>
 </div>
 
-<!-- Add symbol panel -->
 <div class="add-panel">
-  <div class="add-row">
-    <span style="font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;align-self:center;margin-right:4px">+ Add</span>
-    <div class="fld">
-      <label>Symbol</label>
-      <div class="srch-wrap">
-        <input id="inSym" class="inp wide" placeholder="e.g. RELIANCE-EQ" autocomplete="off"
-               oninput="this.value=this.value.toUpperCase();onSymInput()" style="text-transform:uppercase">
-        <div id="srchDd" class="srch-dd"></div>
-      </div>
+    <div class="add-row">
+        <span style="font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;align-self:center;margin-right:4px">+ Add</span>
+        <div class="fld">
+            <label>Symbol</label>
+            <div class="srch-wrap">
+                <input id="inSym" class="inp wide" placeholder="e.g. RELIANCE-EQ" autocomplete="off"
+                       oninput="this.value=this.value.toUpperCase();onSymInput()" style="text-transform:uppercase">
+                <div id="srchDd" class="srch-dd"></div>
+            </div>
+        </div>
+        <div class="fld"><label>Entry ₹</label><input id="inEntry" class="inp sm" type="number" step="0.05" placeholder="0.00"></div>
+        <div class="fld"><label>SL ₹</label><input id="inSL" class="inp sm" type="number" step="0.05" placeholder="0.00"></div>
+        <div class="fld"><label>Target ₹</label><input id="inTgt" class="inp sm" type="number" step="0.05" placeholder="0.00"></div>
+        <button class="btn btn-p" onclick="addSymbol()" style="align-self:flex-end">+ Add</button>
+        <span id="addMsg" style="font-size:10px;color:var(--green);align-self:center"></span>
     </div>
-    <div class="fld"><label>Entry ₹</label><input id="inEntry" class="inp sm" type="number" step="0.05" placeholder="0.00"></div>
-    <div class="fld"><label>SL ₹</label><input id="inSL" class="inp sm" type="number" step="0.05" placeholder="0.00"></div>
-    <div class="fld"><label>Target ₹</label><input id="inTgt" class="inp sm" type="number" step="0.05" placeholder="0.00"></div>
-    <button class="btn btn-p" onclick="addSymbol()" style="align-self:flex-end">+ Add</button>
-    <span id="addMsg" style="font-size:10px;color:var(--green);align-self:center"></span>
-  </div>
 </div>
 
 <main>
-  <!-- ── Table 1: Watchlist ───────────────────────────────────────────────── -->
-  <div class="section-hdr">
-    <div class="section-title">Watchlist</div>
-    <span class="section-badge sb-watch" id="wlBadge">0 symbols</span>
-  </div>
-  <div class="tbl-wrap">
-    <table style="min-width:950px">
-      <colgroup>
-        <col style="width:28px"><col style="width:150px"><col style="width:70px">
-        <col style="width:80px"><col style="width:80px"><col style="width:80px">
-        <col style="width:80px"><col style="width:70px"><col style="width:50px">
-        <col style="width:90px"><col style="width:70px">
-      </colgroup>
-      <thead>
-        <tr>
-          <th>#</th><th>Symbol</th><th>Token</th>
-          <th>Entry ₹</th><th>SL ₹</th><th>Target ₹</th>
-          <th>LTP ₹</th><th>Risk %</th><th>Rank</th>
-          <th>Breakout</th><th>Ops</th>
-        </tr>
-      </thead>
-      <tbody id="wlBody"><tr><td colspan="11" class="empty">Loading watchlist…</td></tr></tbody>
-    </table>
-  </div>
+    <div class="section-hdr">
+        <div class="section-title">Watchlist</div>
+        <span class="section-badge sb-watch" id="wlBadge">0 symbols</span>
+    </div>
+    <div class="tbl-wrap">
+        <table style="min-width:950px">
+            <colgroup>
+                <col style="width:28px"><col style="width:150px"><col style="width:70px">
+                <col style="width:80px"><col style="width:80px"><col style="width:80px">
+                <col style="width:80px"><col style="width:70px"><col style="width:50px">
+                <col style="width:90px"><col style="width:70px">
+            </colgroup>
+            <thead>
+                <tr>
+                    <th>#</th><th>Symbol</th><th>Token</th>
+                    <th>Entry ₹</th><th>SL ₹</th><th>Target ₹</th>
+                    <th>LTP ₹</th><th>Risk %</th><th>Rank</th>
+                    <th>Breakout</th><th>Ops</th>
+                </tr>
+            </thead>
+            <tbody id="wlBody"><tr><td colspan="11" class="empty">Loading watchlist…</td></tr></tbody>
+        </table>
+    </div>
 
-  <!-- ── Table 2: Active Trades ──────────────────────────────────────────── -->
-  <div class="section-hdr" style="margin-top:1px">
-    <div class="section-title">Active Momentum Trades</div>
-    <span class="section-badge sb-active" id="atBadge">0 open</span>
-  </div>
-  <div class="tbl-wrap">
-    <table style="min-width:1100px">
-      <colgroup>
-        <col style="width:28px"><col style="width:130px"><col style="width:80px">
-        <col style="width:80px"><col style="width:80px"><col style="width:50px">
-        <col style="width:75px"><col style="width:75px"><col style="width:70px">
-        <col style="width:100px"><col style="width:70px"><col style="width:90px">
-        <col style="width:75px"><col style="width:75px">
-      </colgroup>
-      <thead>
-        <tr>
-          <th>#</th><th>Symbol</th><th>Entry ₹</th>
-          <th>SL ₹</th><th>Target ₹</th><th>Qty</th>
-          <th>LTP ₹</th><th>Last SL</th><th>Trail</th>
-          <th>Entry time</th><th>Status</th><th>Live P&amp;L</th>
-          <th>SubAction</th><th>Exit</th>
-        </tr>
-      </thead>
-      <tbody id="atBody"><tr><td colspan="14" class="empty">No active trades</td></tr></tbody>
-    </table>
-  </div>
+    <div class="section-hdr" style="margin-top:1px">
+        <div class="section-title">Active Momentum Trades</div>
+        <span class="section-badge sb-active" id="atBadge">0 open</span>
+    </div>
+    <div class="tbl-wrap">
+        <table style="min-width:1100px">
+            <colgroup>
+                <col style="width:28px"><col style="width:130px"><col style="width:80px">
+                <col style="width:80px"><col style="width:80px"><col style="width:50px">
+                <col style="width:75px"><col style="width:75px"><col style="width:70px">
+                <col style="width:100px"><col style="width:70px"><col style="width:90px">
+                <col style="width:75px"><col style="width:75px">
+            </colgroup>
+            <thead>
+                <tr>
+                    <th>#</th><th>Symbol</th><th>Entry ₹</th>
+                    <th>SL ₹</th><th>Target ₹</th><th>Qty</th>
+                    <th>LTP ₹</th><th>Last SL</th><th>Trail</th>
+                    <th>Entry time</th><th>Status</th><th>Live P&amp;L</th>
+                    <th>SubAction</th><th>Exit</th>
+                </tr>
+            </thead>
+            <tbody id="atBody"><tr><td colspan="14" class="empty">No active trades</td></tr></tbody>
+        </table>
+    </div>
 </main>
 
-<!-- Footer -->
 <div class="ftr">
-  <div class="fi">Angel One SmartAPI</div>
-  <div class="fi">S3 CSV · No DB</div>
-  <div class="fi">Updated: <b id="ftUp">—</b></div>
-  <div class="fi">Next: <b id="ftNext">30</b>s</div>
-  <div class="cbar"><div class="cfill" id="cdrFill" style="width:100%"></div></div>
+    <div class="fi">Angel One SmartAPI</div>
+    <div class="fi">S3 CSV · No DB</div>
+    <div class="fi">Updated: <b id="ftUp">—</b></div>
+    <div class="fi">Next: <b id="ftNext">30</b>s</div>
+    <div class="cbar"><div class="cfill" id="cdrFill" style="width:100%"></div></div>
 </div>
 
 <div id="toasts"></div>
 
-<!-- Buy confirm modal -->
 <div class="overlay" id="buyOverlay">
-  <div class="modal">
-    <div class="modal-h">Confirm manual buy</div>
-    <div id="buyDetails"></div>
-    <div class="modal-note" id="buyNote"></div>
-    <div class="mbtns">
-      <button class="btn btn-r" onclick="closeModal('buyOverlay')">Cancel</button>
-      <button class="btn btn-g" onclick="execBuy()">Execute</button>
+    <div class="modal">
+        <div class="modal-h">Confirm manual buy</div>
+        <div id="buyDetails"></div>
+        <div class="modal-note" id="buyNote"></div>
+        <div class="mbtns">
+            <button class="btn btn-r" onclick="closeModal('buyOverlay')">Cancel</button>
+            <button class="btn btn-g" onclick="execBuy()">Execute</button>
+        </div>
     </div>
-  </div>
 </div>
 
 <script>
 // ══════════════════════════════════════════════════════════════════════════════
-//  CONFIG
+//  CONFIG (Relative for CloudFront)
 // ══════════════════════════════════════════════════════════════════════════════
-const API = "http://15.207.151.67:5000";
+const API = ""; 
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  STATE
@@ -324,333 +255,277 @@ let autoBuyOn=false, autoRef=true;
 let cdr=30, cdrTimer, autoRefId;
 let searchTmr, selSym=null, pendingBuy=null;
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  UTILS
-// ══════════════════════════════════════════════════════════════════════════════
 const qs   = id => document.getElementById(id);
 const fmt  = (n,d=2) => isNaN(parseFloat(n)) ? "—" : parseFloat(n).toLocaleString("en-IN",{minimumFractionDigits:d,maximumFractionDigits:d});
 const sleep = ms => new Promise(r=>setTimeout(r,ms));
 
-async function api(method,path,body){
-  const r=await fetch(API+path,{method,headers:{"Content-Type":"application/json"},...(body?{body:JSON.stringify(body)}:{})});
-  return r.json();
+async function api(method, path, body) {
+    try {
+        const r = await fetch(API + path, {
+            method,
+            headers: { "Content-Type": "application/json" },
+            ...(body ? { body: JSON.stringify(body) } : {})
+        });
+        const res = await r.json();
+        if (!r.ok) throw new Error(res.error || "Request failed");
+        return res;
+    } catch (e) {
+        toast("API Error", e.message, "e");
+        throw e;
+    }
 }
 
 function istNow(){ return new Date(new Date().toLocaleString("en-US",{timeZone:"Asia/Kolkata"})); }
 function isOpen(){ const d=istNow(),m=d.getHours()*60+d.getMinutes(); return d.getDay()>=1&&d.getDay()<=5&&m>=555&&m<=930; }
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  TOAST
-// ══════════════════════════════════════════════════════════════════════════════
 function toast(title,msg,type="i"){
-  const el=document.createElement("div");
-  el.className=`toast ${type}`;
-  el.innerHTML=`<div class="t-t">${title}</div><div class="t-m">${msg}</div>`;
-  qs("toasts").appendChild(el);
-  setTimeout(()=>el.remove(),5000);
+    const el=document.createElement("div");
+    el.className=`toast ${type}`;
+    el.innerHTML=`<div class="t-t">${title}</div><div class="t-m">${msg}</div>`;
+    qs("toasts").appendChild(el);
+    setTimeout(()=>el.remove(),5000);
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  CLOCK + MARKET
-// ══════════════════════════════════════════════════════════════════════════════
 function tick(){
-  qs("clock").textContent=istNow().toLocaleTimeString("en-IN")+" IST";
-  const open=isOpen(), c=qs("mktChip");
-  c.textContent=open?"Open":"Closed"; c.className="mkt "+(open?"open":"closed");
+    qs("clock").textContent=istNow().toLocaleTimeString("en-IN")+" IST";
+    const open=isOpen(), c=qs("mktChip");
+    c.textContent=open?"Open":"Closed"; c.className="mkt "+(open?"open":"closed");
 }
 setInterval(tick,1000); tick();
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  STATS
-// ══════════════════════════════════════════════════════════════════════════════
 function updateStats(){
-  qs("sTot").textContent=wlRows.length;
-  qs("sBrk").textContent=wlRows.filter(r=>r.Breakout==="YES").length;
-  qs("sAct").textContent=atRows.length;
+    qs("sTot").textContent=wlRows.length;
+    qs("sBrk").textContent=wlRows.filter(r=>r.Breakout==="YES").length;
+    qs("sAct").textContent=atRows.length;
 }
 
 async function fetchPnl(){
-  try{
-    const d=await api("GET","/api/pnl");
-    if(!d.success)return;
-    const{realized_pnl:r,unrealized_pnl:u,total_pnl:t,available_balance:bal}=d;
-    const se=(id,v)=>{const e=qs(id);e.textContent=fmt(v);e.className="sval "+(v>=0?"cg":"cr")};
-    se("sReal",r);se("sUnrl",u);se("sTpnl",t);
-    qs("sPnlSub").textContent=t>=0?"in profit":"in loss";
-    if(bal!==undefined){qs("sBal").textContent="₹"+Math.round(bal).toLocaleString("en-IN");qs("sBal").className="sval ca";}
-  }catch(_){}
+    try{
+        const d=await api("GET","/api/pnl");
+        if(!d.success)return;
+        const{realized_pnl:r,unrealized_pnl:u,total_pnl:t,available_balance:bal}=d;
+        const se=(id,v)=>{const e=qs(id);e.textContent=fmt(v);e.className="sval "+(v>=0?"cg":"cr")};
+        se("sReal",r);se("sUnrl",u);se("sTpnl",t);
+        qs("sPnlSub").textContent=t>=0?"in profit":"in loss";
+        if(bal!==undefined){qs("sBal").textContent="₹"+Math.round(bal).toLocaleString("en-IN");qs("sBal").className="sval ca";}
+    }catch(_){}
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  RENDER WATCHLIST TABLE
-// ══════════════════════════════════════════════════════════════════════════════
 function renderWatchlist(){
-  const tb=qs("wlBody");
-  qs("wlBadge").textContent=`${wlRows.length} symbols`;
-  if(!wlRows.length){
-    tb.innerHTML='<tr><td colspan="11" class="empty">No symbols. Add one above.</td></tr>';return;
-  }
-  tb.innerHTML=wlRows.map((r,i)=>{
-    const brk  = r.Breakout==="YES";
-    const ltp  = parseFloat(r.ltp||0);
-    const entry= parseFloat(r.Entry_Price||0);
-    const pct  = entry&&ltp?((ltp-entry)/entry*100).toFixed(2):0;
-    const pctH = ltp>entry?`<span class="pct-p">+${pct}%</span>`:ltp<entry?`<span class="pct-n">${pct}%</span>`:`<span style="color:var(--muted)">0.00%</span>`;
-    const brkB = brk?'<span class="bdg b-yes">YES</span>':'<span class="bdg b-no">NO</span>';
-    const rank = r.Rank&&r.Rank!=="0"?`<span class="bdg b-brk">#${r.Rank}</span>`:`<span style="color:var(--muted)">—</span>`;
-    const action= r.Action==="AUTO_BUYED"?'<span class="bdg b-auto">Bought</span>':brk?'<span class="bdg b-buy">BUY</span>':'';
-    return `
-    <tr class="${brk?"brk":""}" data-sym="${r.Symbol}">
-      <td style="color:var(--muted)">${i+1}</td>
-      <td><div class="sym-cell"><div class="sym-av">${(r.Symbol||"?").slice(0,2)}</div>
-        <div><div class="sym-name">${r.Symbol}</div><div style="font-size:10px;color:var(--muted)">${action}</div></div>
-      </div></td>
-      <td style="color:var(--text2);font-size:11px">${r.Angel_Token||"—"}</td>
-      <td style="color:var(--blue)">${fmt(r.Entry_Price)}</td>
-      <td style="color:var(--red)">${fmt(r.SL_Price)}</td>
-      <td style="color:var(--green)">${fmt(r.Target_Price)}</td>
-      <td><span style="font-weight:600;${brk?"color:var(--amber)":"color:var(--text)"}">${ltp?fmt(ltp):"—"}</span> ${pctH}</td>
-      <td style="color:var(--amber)">${fmt(r.Risk_Percent,2)}%</td>
-      <td>${rank}</td>
-      <td>${brkB}</td>
-      <td><div class="ops">
-        ${r.Action!=="AUTO_BUYED"?`<button class="ob b" onclick="openBuyModal('${r.Symbol}')" title="Buy">▶</button>`:''}
-        <button class="ob d" onclick="deleteSymbol('${r.Symbol}')" title="Delete">✕</button>
-      </div></td>
-    </tr>`;
-  }).join("");
+    const tb=qs("wlBody");
+    qs("wlBadge").textContent=`${wlRows.length} symbols`;
+    if(!wlRows.length){
+        tb.innerHTML='<tr><td colspan="11" class="empty">No symbols. Add one above.</td></tr>';return;
+    }
+    tb.innerHTML=wlRows.map((r,i)=>{
+        const brk = r.Breakout==="YES";
+        const ltp = parseFloat(r.ltp||0);
+        const entry= parseFloat(r.Entry_Price||0);
+        const pct = entry&&ltp?((ltp-entry)/entry*100).toFixed(2):0;
+        const pctH = ltp>entry?`<span class="pct-p">+${pct}%</span>`:ltp<entry?`<span class="pct-n">${pct}%</span>`:`<span style="color:var(--muted)">0.00%</span>`;
+        const brkB = brk?'<span class="bdg b-yes">YES</span>':'<span class="bdg b-no">NO</span>';
+        const rank = r.Rank&&r.Rank!=="0"?`<span class="bdg b-brk">#${r.Rank}</span>`:`<span style="color:var(--muted)">—</span>`;
+        const action= r.Action==="AUTO_BUYED"?'<span class="bdg b-auto">Bought</span>':brk?'<span class="bdg b-buy">BUY</span>':'';
+        return `
+        <tr class="${brk?"brk":""}" data-sym="${r.Symbol}">
+            <td style="color:var(--muted)">${i+1}</td>
+            <td><div class="sym-cell"><div class="sym-av">${(r.Symbol||"?").slice(0,2)}</div>
+                <div><div class="sym-name">${r.Symbol}</div><div style="font-size:10px;color:var(--muted)">${action}</div></div>
+            </div></td>
+            <td style="color:var(--text2);font-size:11px">${r.Angel_Token||"—"}</td>
+            <td style="color:var(--blue)">${fmt(r.Entry_Price)}</td>
+            <td style="color:var(--red)">${fmt(r.SL_Price)}</td>
+            <td style="color:var(--green)">${fmt(r.Target_Price)}</td>
+            <td><span style="font-weight:600;${brk?"color:var(--amber)":"color:var(--text)"}">${ltp?fmt(ltp):"—"}</span> ${pctH}</td>
+            <td style="color:var(--amber)">${fmt(r.Risk_Percent,2)}%</td>
+            <td>${rank}</td>
+            <td>${brkB}</td>
+            <td><div class="ops">
+                ${r.Action!=="AUTO_BUYED"?`<button class="ob b" onclick="openBuyModal('${r.Symbol}')" title="Buy">▶</button>`:''}
+                <button class="ob d" onclick="deleteSymbol('${r.Symbol}')" title="Delete">✕</button>
+            </div></td>
+        </tr>`;
+    }).join("");
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  RENDER ACTIVE TRADES TABLE
-// ══════════════════════════════════════════════════════════════════════════════
 function renderActiveTrades(){
-  const tb=qs("atBody");
-  qs("atBadge").textContent=`${atRows.length} open`;
-  if(!atRows.length){
-    tb.innerHTML='<tr><td colspan="14" class="empty">No active trades</td></tr>';return;
-  }
-  tb.innerHTML=atRows.map((r,i)=>{
-    const ltp    = parseFloat(r.ltp||0);
-    const pnl    = parseFloat(r.live_pnl||0);
-    const pnlH   = pnl>0?`<span class="pnl-pos">+₹${fmt(pnl)}</span>`:pnl<0?`<span class="pnl-neg">-₹${fmt(Math.abs(pnl))}</span>`:`<span class="pnl-zero">₹0.00</span>`;
-    const trail  = r.Trailing_Active==="True";
-    const trailB = trail?'<span class="bdg b-trail">ON</span>':'<span style="color:var(--muted)">—</span>';
-    const subB   = r.SubAction==="BREAKEVEN"?'<span class="bdg b-buy">BEVEN</span>':r.SubAction==="TRAILING"?'<span class="bdg b-trail">TRAIL</span>':r.SubAction==="ENTRY"?'<span class="bdg b-active">ENTRY</span>':`<span style="color:var(--muted)">${r.SubAction||"—"}</span>`;
-    const rc     = trail?"trail":"actv";
-    return `
-    <tr class="${rc}">
-      <td style="color:var(--muted)">${i+1}</td>
-      <td><div class="sym-cell"><div class="sym-av">${(r.Symbol||"?").slice(0,2)}</div>
-        <span class="sym-name">${r.Symbol}</span>
-      </div></td>
-      <td style="color:var(--blue)">${fmt(r.Entry_Price)}</td>
-      <td style="color:var(--red);font-weight:600">${fmt(r.SL_Price)}</td>
-      <td style="color:var(--green);font-weight:600">${fmt(r.Target_Price)}</td>
-      <td style="color:var(--amber)">${r.Qty}</td>
-      <td style="font-weight:600;color:var(--text)">${ltp?fmt(ltp):"—"}</td>
-      <td style="color:var(--amber);font-weight:600">${fmt(r.Last_SL)}</td>
-      <td>${trailB}</td>
-      <td style="color:var(--text2);font-size:11px">${(r.Entry_Time||"").slice(11,19)||"—"}</td>
-      <td><span class="bdg b-active">ACTIVE</span></td>
-      <td>${pnlH}</td>
-      <td>${subB}</td>
-      <td><button class="btn btn-sm btn-r" onclick="exitTrade('${r.Order_ID}','${r.Symbol}')">✕ Exit</button></td>
-    </tr>`;
-  }).join("");
+    const tb=qs("atBody");
+    qs("atBadge").textContent=`${atRows.length} open`;
+    if(!atRows.length){
+        tb.innerHTML='<tr><td colspan="14" class="empty">No active trades</td></tr>';return;
+    }
+    tb.innerHTML=atRows.map((r,i)=>{
+        const ltp = parseFloat(r.ltp||0);
+        const pnl = parseFloat(r.live_pnl||0);
+        const pnlH = pnl>0?`<span class="pnl-pos">+₹${fmt(pnl)}</span>`:pnl<0?`<span class="pnl-neg">-₹${fmt(Math.abs(pnl))}</span>`:`<span class="pnl-zero">₹0.00</span>`;
+        const trail = r.Trailing_Active==="True";
+        const trailB = trail?'<span class="bdg b-trail">ON</span>':'<span style="color:var(--muted)">—</span>';
+        const subB = r.SubAction==="BREAKEVEN"?'<span class="bdg b-buy">BEVEN</span>':r.SubAction==="TRAILING"?'<span class="bdg b-trail">TRAIL</span>':r.SubAction==="ENTRY"?'<span class="bdg b-active">ENTRY</span>':`<span style="color:var(--muted)">${r.SubAction||"—"}</span>`;
+        const rc = trail?"trail":"actv";
+        return `
+        <tr class="${rc}">
+            <td style="color:var(--muted)">${i+1}</td>
+            <td><div class="sym-cell"><div class="sym-av">${(r.Symbol||"?").slice(0,2)}</div>
+                <span class="sym-name">${r.Symbol}</span>
+            </div></td>
+            <td style="color:var(--blue)">${fmt(r.Entry_Price)}</td>
+            <td style="color:var(--red);font-weight:600">${fmt(r.SL_Price)}</td>
+            <td style="color:var(--green);font-weight:600">${fmt(r.Target_Price)}</td>
+            <td style="color:var(--amber)">${r.Qty}</td>
+            <td style="font-weight:600;color:var(--text)">${ltp?fmt(ltp):"—"}</td>
+            <td style="color:var(--amber);font-weight:600">${fmt(r.Last_SL)}</td>
+            <td>${trailB}</td>
+            <td style="color:var(--text2);font-size:11px">${(r.Entry_Time||"").slice(11,19)||"—"}</td>
+            <td><span class="bdg b-active">ACTIVE</span></td>
+            <td>${pnlH}</td>
+            <td>${subB}</td>
+            <td><button class="btn btn-sm btn-r" onclick="exitTrade('${r.Order_ID}','${r.Symbol}')">✕ Exit</button></td>
+        </tr>`;
+    }).join("");
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  DATA FETCHING
-// ══════════════════════════════════════════════════════════════════════════════
 async function fetchWatchlist(){
-  try{
-    const d=await api("GET","/api/watchlist");
-    if(d.success){wlRows=d.data; renderWatchlist();}
-    else toast("Watchlist error",d.error||"","e");
-  }catch(e){toast("Network error","Cannot reach API","e")}
+    try{
+        const d=await api("GET","/api/watchlist");
+        if(d.success){wlRows=d.data; renderWatchlist();}
+    }catch(e){}
 }
 
 async function fetchActiveTrades(){
-  try{
-    const d=await api("GET","/api/trades/active");
-    if(d.success){atRows=d.data; renderActiveTrades(); qs("sAct").textContent=atRows.length;}
-  }catch(_){}
+    try{
+        const d=await api("GET","/api/trades/active");
+        if(d.success){atRows=d.data; renderActiveTrades(); qs("sAct").textContent=atRows.length;}
+    }catch(_){}
 }
 
 async function doRefresh(){
-  const btn=qs("refBtn");
-  btn.disabled=true; btn.innerHTML='<span class="spin"></span>Refreshing';
-  await Promise.all([fetchWatchlist(), fetchActiveTrades(), fetchPnl()]);
-  btn.disabled=false; btn.textContent="↺ Refresh all";
-  qs("ftUp").textContent=istNow().toLocaleTimeString("en-IN");
-  updateStats(); resetCdr();
+    const btn=qs("refBtn");
+    btn.disabled=true; btn.innerHTML='<span class="spin"></span>Refreshing';
+    await Promise.allSettled([fetchWatchlist(), fetchActiveTrades(), fetchPnl()]);
+    btn.disabled=false; btn.textContent="↺ Refresh all";
+    qs("ftUp").textContent=istNow().toLocaleTimeString("en-IN");
+    updateStats(); resetCdr();
 }
 
 async function triggerScan(){
-  try{
-    const d=await api("POST","/api/watchlist/scan");
-    if(d.success){wlRows=d.data; renderWatchlist(); updateStats(); toast("Scan","Breakout scan complete","i")}
-  }catch(e){toast("Scan error",e.message,"e")}
+    try{
+        const d=await api("POST","/api/watchlist/scan");
+        if(d.success){wlRows=d.data; renderWatchlist(); updateStats(); toast("Scan","Breakout scan complete","i")}
+    }catch(e){}
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  SYMBOL SEARCH
-// ══════════════════════════════════════════════════════════════════════════════
 const symIn=qs("inSym"), dd=qs("srchDd");
 function onSymInput(){
-  selSym=null; clearTimeout(searchTmr);
-  const q=symIn.value.trim();
-  if(q.length<2){dd.style.display="none";return}
-  searchTmr=setTimeout(async()=>{
-    try{
-      const d=await api("GET",`/api/search_symbol?q=${encodeURIComponent(q)}`);
-      if(!d.success||!d.data?.length){dd.style.display="none";return}
-      dd.innerHTML=d.data.map(it=>`
-        <div class="srch-item" data-sym="${it.symbol}" data-token="${it.token}" data-margin="${it.margin}">
-          <span>${it.symbol}</span>
-          <span class="stok">${it.token} · ${it.margin}×</span>
-        </div>`).join("");
-      dd.style.display="block";
-    }catch(_){dd.style.display="none"}
-  },350);
+    selSym=null; clearTimeout(searchTmr);
+    const q=symIn.value.trim();
+    if(q.length<2){dd.style.display="none";return}
+    searchTmr=setTimeout(async()=>{
+        try{
+            const d=await api("GET",`/api/search_symbol?q=${encodeURIComponent(q)}`);
+            if(!d.success||!d.data?.length){dd.style.display="none";return}
+            dd.innerHTML=d.data.map(it=>`
+                <div class="srch-item" data-sym="${it.symbol}" data-token="${it.token}" data-margin="${it.margin}">
+                    <span>${it.symbol}</span>
+                    <span class="stok">${it.token} · ${it.margin}×</span>
+                </div>`).join("");
+            dd.style.display="block";
+        }catch(_){dd.style.display="none"}
+    },350);
 }
 dd.addEventListener("click",e=>{
-  const it=e.target.closest(".srch-item"); if(!it)return;
-  selSym={sym:it.dataset.sym,token:it.dataset.token,margin:it.dataset.margin};
-  symIn.value=it.dataset.sym; dd.style.display="none";
+    const it=e.target.closest(".srch-item"); if(!it)return;
+    selSym={sym:it.dataset.sym,token:it.dataset.token,margin:it.dataset.margin};
+    symIn.value=it.dataset.sym; dd.style.display="none";
 });
-document.addEventListener("click",e=>{if(!e.target.closest(".srch-wrap"))dd.style.display="none"});
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  ADD SYMBOL
-// ══════════════════════════════════════════════════════════════════════════════
 async function addSymbol(){
-  const sym  =symIn.value.trim().toUpperCase();
-  const entry=parseFloat(qs("inEntry").value)||0;
-  const sl   =parseFloat(qs("inSL").value)||0;
-  const tgt  =parseFloat(qs("inTgt").value)||0;
-  if(!sym||!entry||!sl||!tgt){toast("Missing fields","Symbol, entry, SL, target required","e");return}
-  if(sl>=entry){toast("Invalid SL","SL must be below entry","e");return}
-  if(tgt<=entry){toast("Invalid target","Target must be above entry","e");return}
-  const msg=qs("addMsg"); msg.innerHTML='<span class="spin"></span>Adding…';
-  try{
-    const d=await api("POST","/api/watchlist",{symbol:sym,entry_price:entry,sl_price:sl,target_price:tgt});
-    if(d.success){
-      toast("Added",`${sym} — token: ${d.row.Angel_Token||"not found"}`,"s");
-      symIn.value=qs("inEntry").value=qs("inSL").value=qs("inTgt").value="";
-      selSym=null; msg.textContent=""; await fetchWatchlist();
-    }else{toast("Error",d.error||"Failed","e"); msg.textContent=""}
-  }catch(e){toast("Error",e.message,"e"); msg.textContent=""}
+    const sym=symIn.value.trim().toUpperCase();
+    const entry=parseFloat(qs("inEntry").value)||0;
+    const sl=parseFloat(qs("inSL").value)||0;
+    const tgt=parseFloat(qs("inTgt").value)||0;
+    if(!sym||!entry||!sl||!tgt){toast("Missing fields","All fields required","e");return}
+    const msg=qs("addMsg"); msg.innerHTML='<span class="spin"></span>Adding…';
+    try{
+        const d=await api("POST","/api/watchlist",{symbol:sym,entry_price:entry,sl_price:sl,target_price:tgt});
+        if(d.success){
+            toast("Added",`${sym} successfully`,"s");
+            symIn.value=qs("inEntry").value=qs("inSL").value=qs("inTgt").value="";
+            msg.textContent=""; await fetchWatchlist();
+        }
+    }catch(e){msg.textContent=""}
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  DELETE SYMBOL
-// ══════════════════════════════════════════════════════════════════════════════
 async function deleteSymbol(sym){
-  if(!confirm(`Remove ${sym} from watchlist?`))return;
-  await api("DELETE",`/api/watchlist/${sym}`);
-  toast("Deleted",sym,"i"); await fetchWatchlist();
+    if(!confirm(`Remove ${sym}?`))return;
+    await api("DELETE",`/api/watchlist/${sym}`);
+    toast("Deleted",sym,"i"); await fetchWatchlist();
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  MANUAL BUY MODAL
-// ══════════════════════════════════════════════════════════════════════════════
 function openBuyModal(symbol){
-  const row=wlRows.find(r=>r.Symbol===symbol);
-  if(!row){toast("Error","Symbol not in watchlist","e");return}
-  pendingBuy=row;
-  const entry=fmt(row.Entry_Price), sl=fmt(row.SL_Price), tgt=fmt(row.Target_Price);
-  const risk =row.Risk_Percent?row.Risk_Percent+"%" :"—";
-  qs("buyDetails").innerHTML=`
-    <div class="mrow"><span class="mk">Symbol</span>     <span class="mv">${symbol}</span></div>
-    <div class="mrow"><span class="mk">Angel Token</span><span class="mv">${row.Angel_Token||"—"}</span></div>
-    <div class="mrow"><span class="mk">Entry price</span><span class="mv">₹ ${entry}</span></div>
-    <div class="mrow"><span class="mk">SL price</span>   <span class="mv r">₹ ${sl}</span></div>
-    <div class="mrow"><span class="mk">Target price</span><span class="mv g">₹ ${tgt}</span></div>
-    <div class="mrow"><span class="mk">Risk %</span>     <span class="mv a">${risk}</span></div>
-    <div class="mrow"><span class="mk">Rank</span>       <span class="mv a">${row.Rank&&row.Rank!=="0"?"#"+row.Rank:"Unranked"}</span></div>
-    <div class="mrow"><span class="mk">LTP</span>        <span class="mv">₹ ${fmt(row.ltp)}</span></div>`;
-  qs("buyNote").textContent="Qty will be sized from live balance (30% × 2% risk, capped ₹1000). Order only written if COMPLETE.";
-  qs("buyOverlay").className="overlay on";
+    const row=wlRows.find(r=>r.Symbol===symbol);
+    if(!row)return; pendingBuy=row;
+    qs("buyDetails").innerHTML=`
+        <div class="mrow"><span class="mk">Symbol</span><span class="mv">${symbol}</span></div>
+        <div class="mrow"><span class="mk">Entry</span><span class="mv">₹ ${fmt(row.Entry_Price)}</span></div>
+        <div class="mrow"><span class="mk">SL</span><span class="mv r">₹ ${fmt(row.SL_Price)}</span></div>`;
+    qs("buyOverlay").className="overlay on";
 }
 
 function closeModal(id){ qs(id).className="overlay"; }
 
 async function execBuy(){
-  qs("buyOverlay").className="overlay";
-  if(!pendingBuy)return;
-  const r=pendingBuy; pendingBuy=null;
-  const btn=qs("refBtn");
-  toast("Placing order",`${r.Symbol} LIMIT BUY…`,"i");
-  try{
-    const d=await api("POST","/api/trade/buy",{
-      symbol:r.Symbol, entry_price:parseFloat(r.Entry_Price),
-      sl_price:parseFloat(r.SL_Price), target_price:parseFloat(r.Target_Price),
-    });
-    if(d.success){
-      toast("Order placed ✓",`${r.Symbol} order_id=${d.order_id}`,"s");
-      await Promise.all([fetchWatchlist(),fetchActiveTrades()]);
-    }else{
-      toast("Order failed",d.error||"Unknown","e");
-    }
-  }catch(e){toast("Error",e.message,"e")}
+    closeModal('buyOverlay');
+    if(!pendingBuy)return;
+    const r=pendingBuy; pendingBuy=null;
+    toast("Order",`Placing order for ${r.Symbol}...`,"i");
+    try{
+        const d=await api("POST","/api/trade/buy",{
+            symbol:r.Symbol, entry_price:parseFloat(r.Entry_Price),
+            sl_price:parseFloat(r.SL_Price), target_price:parseFloat(r.Target_Price),
+        });
+        if(d.success) toast("Success",`${r.Symbol} bought`,"s");
+        await doRefresh();
+    }catch(e){}
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  EXIT TRADE
-// ══════════════════════════════════════════════════════════════════════════════
 async function exitTrade(orderId, symbol){
-  if(!confirm(`Exit ${symbol} position? This places a MARKET SELL order.`))return;
-  try{
-    const d=await api("POST",`/api/trade/exit/${orderId}`);
-    if(d.success){
-      toast("Exited",`${symbol} MANUAL_CANCEL`,"s");
-      await fetchActiveTrades();
-    }else{toast("Exit failed",d.error||"","e")}
-  }catch(e){toast("Error",e.message,"e")}
+    if(!confirm(`Exit ${symbol}?`))return;
+    try{
+        const d=await api("POST",`/api/trade/exit/${orderId}`);
+        if(d.success) toast("Exited",symbol,"s");
+        await fetchActiveTrades();
+    }catch(e){}
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  AUTO-BUY + AUTO-REFRESH TOGGLES
-// ══════════════════════════════════════════════════════════════════════════════
 async function toggleAutoBuy(){
-  autoBuyOn=!autoBuyOn;
-  qs("autoBuyTog").classList.toggle("on",autoBuyOn);
-  await api("POST","/api/auto_buy_toggle",{enabled:autoBuyOn});
-  toast("Auto-buy",autoBuyOn?"Enabled":"Disabled",autoBuyOn?"s":"i");
-}
-function toggleAutoRef(){
-  autoRef=!autoRef;
-  qs("autoRefTog").classList.toggle("on",autoRef);
-  clearInterval(autoRefId);
-  if(autoRef) autoRefId=setInterval(()=>Promise.all([fetchWatchlist(),fetchActiveTrades()]),30000);
-  toast("Auto-refresh",autoRef?"Enabled":"Disabled","i");
+    autoBuyOn=!autoBuyOn;
+    qs("autoBuyTog").classList.toggle("on",autoBuyOn);
+    api("POST","/api/auto_buy_toggle",{enabled:autoBuyOn});
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  COUNTDOWN
-// ══════════════════════════════════════════════════════════════════════════════
+function toggleAutoRef(){
+    autoRef=!autoRef;
+    qs("autoRefTog").classList.toggle("on",autoRef);
+}
+
 function resetCdr(){
-  clearInterval(cdrTimer); cdr=30;
-  cdrTimer=setInterval(()=>{
-    cdr--;
-    qs("ftNext").textContent=cdr;
-    qs("cdrFill").style.width=(cdr/30*100)+"%";
-    if(cdr<=0){clearInterval(cdrTimer);if(autoRef)doRefresh();else resetCdr();}
-  },1000);
+    clearInterval(cdrTimer); cdr=30;
+    cdrTimer=setInterval(()=>{
+        cdr--; qs("ftNext").textContent=cdr;
+        qs("cdrFill").style.width=(cdr/30*100)+"%";
+        if(cdr<=0){ if(autoRef) doRefresh(); else resetCdr(); }
+    },1000);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  INIT
 // ══════════════════════════════════════════════════════════════════════════════
 (async function init(){
-  await doRefresh();
-  autoRefId=setInterval(()=>Promise.all([fetchWatchlist(),fetchActiveTrades()]),30000);
-  setInterval(fetchPnl,15000);
-  // Active trade table refreshes more frequently (live P&L)
-  setInterval(fetchActiveTrades,10000);
-})();
+    await doRefresh();
+    setInterval(() => { if(autoRef) { fetchWatchlist(); fetchActiveTrades(); } }, 30000);
+    setInterval(fetchPnl, 15000);
+    setInterval(fetchActiveTrades, 10000);
+})(); 
 </script>
 </body>
 </html>

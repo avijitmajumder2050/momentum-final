@@ -108,8 +108,12 @@ def api_add_symbol():
         return jsonify({"success":False,"error":"Target must be above entry"}),400
 
     broker      = get_broker()
-    angel_token = broker.get_token(symbol) or ""
+    angel_token = broker.get_token(symbol) 
     if not angel_token:
+        return jsonify({
+        "success": False,
+        "error": f"Token not found for {symbol}. Check token CSV."
+    }), 400
         log.warning("[add] Token not found for %s in CSV map", symbol)
 
     row = add_symbol(symbol, angel_token, entry_price, sl_price, target_price)
