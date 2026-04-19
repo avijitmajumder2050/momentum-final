@@ -207,11 +207,6 @@ class TrailingEngine:
     def __init__(self):
         self.running = False
         self._thread: Optional[threading.Thread] = None
-        # ADD THIS: Initialize the status dictionary
-        self.status = {
-            "active_trades": 0,
-            "last_run": None
-        }
 
     def start(self):
         if self.running:
@@ -246,9 +241,6 @@ class TrailingEngine:
         broker = get_broker()
 
         trades = load_active()
-        # ADD THIS: Update status for the API to read
-        self.status["active_trades"] = len(trades)
-        self.status["last_run"] = datetime.now().strftime("%H:%M:%S")
 
         for trade in trades:
             try:
