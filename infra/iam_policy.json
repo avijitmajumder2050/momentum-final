@@ -2,38 +2,26 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "SSMRead",
       "Effect": "Allow",
-      "Action": ["ssm:GetParameter","ssm:GetParameters","ssm:GetParametersByPath"],
-      "Resource": "arn:aws:ssm:ap-south-1:*:parameter/momentum-watchlist/*"
-    },
-    {
-      "Sid": "KMSDecrypt",
-      "Effect": "Allow",
-      "Action": ["kms:Decrypt"],
-      "Resource": "arn:aws:kms:ap-south-1:*:key/*",
-      "Condition": {"StringEquals":{"kms:ViaService":"ssm.ap-south-1.amazonaws.com"}}
-    },
-    {
-      "Sid": "S3Platform",
-      "Effect": "Allow",
-      "Action": ["s3:GetObject","s3:PutObject","s3:DeleteObject"],
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "s3:ListBucket"
+      ],
       "Resource": [
-        "arn:aws:s3:::dhan-trading-data/angel/*",
-        "arn:aws:s3:::dhan-trading-data/logs/*"
+        "arn:aws:s3:::momentum-watchlist-bucket",
+        "arn:aws:s3:::momentum-watchlist-bucket/*"
       ]
     },
     {
-      "Sid": "S3List",
       "Effect": "Allow",
-      "Action": ["s3:ListBucket"],
-      "Resource": "arn:aws:s3:::dhan-trading-data"
-    },
-    {
-      "Sid": "EC2EIP",
-      "Effect": "Allow",
-      "Action": ["ec2:AssociateAddress","ec2:DescribeAddresses","ec2:DescribeInstances"],
-      "Resource": "*"
+      "Action": [
+        "ssm:GetParameter",
+        "ssm:GetParameters",
+        "ssm:GetParametersByPath"
+      ],
+      "Resource": "arn:aws:ssm:ap-south-1:976274969320:parameter/momentum-watchlist/*"
     }
   ]
 }
