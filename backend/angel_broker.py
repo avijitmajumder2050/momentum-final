@@ -209,13 +209,14 @@ class AngelBroker:
         log.info("[Order] %s %d×%s @ %.2f [%s]",
                  transaction.upper(), qty, trading_symbol, price, product_type)
         r = self._call(self._obj.placeOrder, params)
-        if r.get("status"):
-            oid = r.get("data",{}).get("orderid","")
+        # SmartAPI returns orderid string directly
+        if r:
+            oid = str(r)
             log.info("[Order] OK — order_id=%s", oid)
             return {"status":"success","order_id":oid}
-        msg = r.get("message","Unknown error")
-        log.warning("[Order] FAILED: %s", msg)
-        return {"status":"error","message":msg}
+        
+        log.warning("[Order] FAILED: empty response")
+        return {"status": "error", "message": "empty response"}
 
     def get_order_status(self, order_id: str) -> str:
         """
@@ -289,12 +290,12 @@ class AngelBroker:
 
         try:
             r = self._call(self._obj.gttCreateRule, params)
-            if r.get("status"):
-                gid = (r.get("data") or {}).get("id", "")
+            if r:
+                gid = str(r)
                 log.info("[GTT] Created OCO id=%s", gid)
                 return {"status": "success", "gtt_id": gid}
 
-            return {"status": "error", "message": r.get("message", "")}
+            return {"status": "error", "message": "empty response"}
 
         except Exception as e:
             return {"status": "error", "message": str(e)}
