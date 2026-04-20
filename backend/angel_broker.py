@@ -335,10 +335,10 @@ class AngelBroker:
 
         try:
             r = self._call(self._obj.gttModifyRule, params)
-            if r.get("status"):
-                return {"status": "success"}
+            if r:
+                return {"status": "success", "gtt_id": str(r)}
 
-            return {"status": "error", "message": r.get("message", "")}
+            return {"status": "error", "message": "empty response"}
 
         except Exception as e:
             return {"status": "error", "message": str(e)}

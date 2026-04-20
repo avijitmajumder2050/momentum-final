@@ -1,93 +1,60 @@
 """
 trailing_engine.py
 ==================
-Continuous trailing stop-loss engine.
+Production-grade continuous trailing stop-loss engine for Angel One.
 
-Run cycle (every TRAIL_POLL_SECS seconds)
------------------------------------------
-For each ACTIVE trade:
-
-  1. Fetch live LTP from Angel API (never from CSV).
-
-  2. PHASE 1 — BREAKEVEN  (fires once)
-     Condition : LTP >= entry * (1 + BREAKEVEN_PCT)   default +1%
-     Action    : Move SL to entry price
-     SubAction : BREAKEVEN
-
-  3. PHASE 2 — TRAILING   (fires repeatedly)
-     step          = max(1, round(ltp * TRAIL_STEP_PCT))  default 0.2%
-     candidate_sl  = ltp - step
-     Condition : candidate_sl > Last_SL (only move UP, never down)
-     Action    : Modify GTT SL via Angel API → update Last_SL in CSV
-     SubAction : TRAILING
-
-  4. TARGET CHECK
-     Condition : LTP >= Target_Price
-     Action    : close_trade (TARGET_HIT)
-
-  5. SL CHECK
-     Condition : LTP <= Last_SL
-     Action    : close_trade (SL_HIT)
-
-  6. TIME EXIT
-     Condition : Entry_Time + TIME_EXIT_MINS elapsed AND Status == ACTIVE
-     Action    : cancel GTT, place market SELL, close_trade (TIME_EXIT)
-
-Idempotency
------------
-- SL only moves UP — a lower candidate_sl is always ignored.
-- Trailing flag is set True in CSV so restart-safe.
-- All operations are wrapped in try/except per trade — one bad symbol
-  never blocks others.
-
-SubAction values written to CSV
----------------------------------
-ENTRY / BREAKEVEN / TRAILING / TARGET_HIT / SL_HIT /
-MANUAL_CANCEL / TIME_EXIT
+Logic Sequence:
+1. PHASE 1: BREAKEVEN - If LTP >= Entry * 1.03, move SL to Entry.
+2. PHASE 2: LOOSE TRAILING - Formula: SL = Entry + (floor(PriceMove/Step) - 2) * Step.
 """
 
 import os
 import time
 import logging
 import threading
+import math
 from datetime import datetime, timedelta
 from typing import Optional
 
+# Assumption: trade_s3 handles local/cloud persistence for restart-safety
 from trade_s3 import load_active, update_trailing_sl, close_trade, update_trade
 
 log             = logging.getLogger(__name__)
 TRAIL_POLL_SECS = int(os.getenv("TRAIL_POLL_SECS", "10"))
-BREAKEVEN_PCT   = float(os.getenv("BREAKEVEN_PCT", "0.01"))
-TRAIL_STEP_PCT  = float(os.getenv("TRAIL_STEP_PCT", "0.002"))
+BREAKEVEN_PCT   = 0.03  # Fixed at 3% as per requirements
 TIME_EXIT_MINS  = int(os.getenv("TIME_EXIT_MINS", "10"))
 
-
-def calc_step(ltp: float) -> float:
-    return max(1.0, round(ltp * TRAIL_STEP_PCT, 2))
-
+def get_dynamic_step(ltp: float) -> int:
+    """Requirement 5: Ladder-based step logic."""
+    if ltp < 200:
+        return 1
+    elif 200 <= ltp < 500:
+        return 2
+    else:
+        return 5
 
 def _ist_now() -> datetime:
     import pytz
     return datetime.now(pytz.timezone("Asia/Kolkata"))
-
 
 def _market_open() -> bool:
     n = _ist_now()
     mins = n.hour * 60 + n.minute
     return n.weekday() < 5 and 555 <= mins <= 930
 
-
 # ─────────────────────────────────────────────
-# TRADE PROCESS
+# TRADE PROCESS LOGIC
 # ─────────────────────────────────────────────
 def process_trade(broker, trade: dict) -> None:
-
     order_id = trade["Order_ID"]
     symbol   = trade["Symbol"]
     token    = trade["Angel_Token"]
 
+    # 1. Fetch live LTP (Requirement 2)
     try:
-        ltp = broker.get_ltp("NSE", symbol, token)
+        ltp_resp = broker.get_ltp("NSE", symbol, token)
+        # Handle dict or float response from wrapper
+        ltp = float(ltp_resp) if isinstance(ltp_resp, (int, float)) else float(ltp_resp['data']['ltp'])
     except Exception as e:
         log.warning("[Trail] LTP failed %s: %s", symbol, e)
         return
@@ -98,155 +65,123 @@ def process_trade(broker, trade: dict) -> None:
         last_sl  = float(trade["Last_SL"] or trade["SL_Price"])
         qty      = int(trade["Qty"])
         gtt_id   = trade.get("GTT_ID", "")
+        # Restart-safe flag to check if Breakeven phase is complete
+        be_done  = str(trade.get("Trailing_Active", "False")).lower() == "true"
     except Exception as e:
         log.error("[Trail] Parse error %s: %s", symbol, e)
         return
 
-    # ── TIME EXIT ─────────────────────────────────────────────
+    # ── TIME EXIT CHECK ───────────────────────────────────────
     try:
         entry_time = datetime.strptime(trade["Entry_Time"], "%Y-%m-%d %H:%M:%S")
-
         if datetime.now() >= entry_time + timedelta(minutes=TIME_EXIT_MINS):
-
             log.info("[Trail] TIME EXIT %s", symbol)
-
-            if gtt_id:
-                broker.cancel_gtt(gtt_id, symbol, token)
-
+            if gtt_id: broker.cancel_gtt(gtt_id, symbol, token)
             broker.place_sell_market_order(symbol, token, qty)
             close_trade(order_id, "TIME_EXIT")
             return
+    except Exception: pass
 
-    except Exception:
-        pass
-
-    # ── TARGET HIT ───────────────────────────────────────────
+    # ── TARGET CHECK ─────────────────────────────────────────
     if ltp >= target:
         log.info("[Trail] TARGET HIT %s", symbol)
         close_trade(order_id, "TARGET_HIT")
         update_trade(order_id, {"SubAction": "TARGET_HIT"})
         return
 
-    # ── SL HIT ───────────────────────────────────────────────
+    # ── SL CHECK ─────────────────────────────────────────────
     if ltp <= last_sl:
-        log.info("[Trail] SL HIT %s", symbol)
+        log.info("[Trail] SL HIT %s at %.2f", symbol, ltp)
         close_trade(order_id, "SL_HIT")
         update_trade(order_id, {"SubAction": "SL_HIT"})
         return
 
-    # ── BREAKEVEN ────────────────────────────────────────────
-    if ltp >= entry * (1 + BREAKEVEN_PCT) and last_sl < entry:
+    # ── PHASE 1: BREAKEVEN (Triggered at 3% Profit) ──────────
+    if not be_done:
+        if ltp >= entry * (1 + BREAKEVEN_PCT):
+            new_sl = round(entry, 2)
+            log.info("[Trail] BREAKEVEN %s -> SL set to Entry: %.2f", symbol, new_sl)
+            _apply_sl_update(broker, trade, new_sl, "BREAKEVEN")
+        return # Transition to trailing phase in next cycle
 
-        new_sl = round(entry, 2)
-        log.info("[Trail] BREAKEVEN %s → %.2f", symbol, new_sl)
+    # ── PHASE 2: LOOSE MOMENTUM TRAILING ─────────────────────
+    step = get_dynamic_step(ltp)
+    price_move = ltp - entry
+    steps_moved = math.floor(price_move / step)
 
-        _apply_sl_update(
-            broker, order_id, symbol, token,
-            qty, gtt_id, new_sl, "BREAKEVEN", target
-        )
-        return
+    # Formula: Entry + (StepsMoved - 2) * Step
+    # This provides the "Loose" cushion for momentum
+    candidate_sl = entry + (steps_moved - 2) * step
+    candidate_sl = round(float(candidate_sl), 2)
 
-    # ── TRAILING ─────────────────────────────────────────────
-    step = calc_step(ltp)
-    candidate_sl = round(ltp - step, 2)
-
+    # Idempotency: Only move UP. If candidate is below Entry (Step 1), ignore.
     if candidate_sl > last_sl:
-
-        log.info("[Trail] TRAIL %s %.2f → %.2f",
-                 symbol, last_sl, candidate_sl)
-
-        _apply_sl_update(
-            broker, order_id, symbol, token,
-            qty, gtt_id, candidate_sl, "TRAILING", target
-        )
-
+        log.info("[Trail] LADDER SHIFT %s: SL %.2f -> %.2f", symbol, last_sl, candidate_sl)
+        _apply_sl_update(broker, trade, candidate_sl, "TRAILING")
 
 # ─────────────────────────────────────────────
-# SL UPDATE
+# BROKER INTEGRATION
 # ─────────────────────────────────────────────
-def _apply_sl_update(
-    broker,
-    order_id: str,
-    symbol: str,
-    token: str,
-    qty: int,
-    gtt_id: str,
-    new_sl: float,
-    sub_action: str,
-    target_price: float,
-) -> None:
+def _apply_sl_update(broker, trade, new_sl: float, sub_action: str) -> None:
+    order_id = trade["Order_ID"]
+    symbol   = trade["Symbol"]
 
-    if gtt_id:
+    if trade.get("GTT_ID"):
         res = broker.modify_gtt_sl(
-            gtt_id,
+            trade["GTT_ID"],
             symbol,
-            token,
-            qty,
+            trade["Angel_Token"],
+            trade["Qty"],
             new_sl,
-            target_price
+            trade["Target_Price"]
         )
-
-        if res["status"] != "success":
-            log.warning("[Trail] GTT modify failed %s: %s",
-                        symbol, res.get("message"))
+        
+        # Handle Angel API returning dict or failure response
+        if isinstance(res, dict) and res.get("status") != "success":
+            log.warning("[Trail] GTT modify failed %s: %s", symbol, res.get("message"))
+            return
     else:
         log.warning("[Trail] No GTT_ID for %s", symbol)
+        return
 
+    # Update persistence to ensure restart-safety
     update_trailing_sl(order_id, new_sl)
     update_trade(order_id, {
         "SubAction": sub_action,
-        "Trailing_Active": "True"
+        "Trailing_Active": "True",  # Sets flag for Phase 2
+        "Last_SL": new_sl
     })
 
-
 # ─────────────────────────────────────────────
-# ENGINE
+# ENGINE CORE
 # ─────────────────────────────────────────────
 class TrailingEngine:
-
     def __init__(self):
         self.running = False
         self._thread: Optional[threading.Thread] = None
-        # ADD THIS: Initialize the status dictionary
-        self.status = {
-            "active_trades": 0,
-            "last_run": None
-        }
+        self.status = {"active_trades": 0, "last_run": None}
 
     def start(self):
-        if self.running:
-            return
-
+        if self.running: return
         self.running = True
-        self._thread = threading.Thread(
-            target=self._loop,
-            daemon=True
-        )
+        self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
-
         log.info("[Trail] Engine started")
-
-    def stop(self):
-        self.running = False
 
     def _loop(self):
         while self.running:
             try:
-                self._run_cycle()
+                if _market_open():
+                    self._run_cycle()
             except Exception as e:
-                log.error("[Trail] Cycle error: %s", e, exc_info=True)
-
+                log.error("[Trail] Engine loop error: %s", e, exc_info=True)
             time.sleep(TRAIL_POLL_SECS)
 
     def _run_cycle(self):
-        if not _market_open():
-            return
-
         from angel_broker import get_broker
         broker = get_broker()
-
         trades = load_active()
-        # ADD THIS: Update status for the API to read
+        
         self.status["active_trades"] = len(trades)
         self.status["last_run"] = datetime.now().strftime("%H:%M:%S")
 
@@ -254,14 +189,8 @@ class TrailingEngine:
             try:
                 process_trade(broker, trade)
             except Exception as e:
-                log.error("[Trail] Trade error %s: %s",
-                          trade.get("Symbol"), e)
-
+                log.error("[Trail] Trade error %s: %s", trade.get("Symbol"), e)
 
 _engine = TrailingEngine()
-
-def get_engine():
-    return _engine
-
-def start_engine():
-    _engine.start()
+def get_engine(): return _engine
+def start_engine(): _engine.start()
