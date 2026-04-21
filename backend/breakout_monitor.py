@@ -30,7 +30,7 @@ def _market_open() -> bool:
 
 def _after_931() -> bool:
     n = _ist_now(); m = n.hour*60+n.minute
-    return n.weekday() < 5 and 571 <= m <= 930
+    return n.weekday() < 5 and 571 <= m <= 1440
 
 
 class BreakoutMonitor:
