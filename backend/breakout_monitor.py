@@ -26,7 +26,7 @@ def _ist_now():
 
 def _market_open() -> bool:
     n = _ist_now(); m = n.hour*60+n.minute
-    return n.weekday() < 5 and 555 <= m <= 930
+    return n.weekday() < 5 and 555 <= m <= 1440
 
 def _after_931() -> bool:
     n = _ist_now(); m = n.hour*60+n.minute
@@ -71,6 +71,14 @@ class BreakoutMonitor:
         self.status["breakouts"] = [
             r["Symbol"] for r in enriched if r.get("Breakout")=="YES"
         ]
+        # 🔥 ADD THIS BLOCK (VERY IMPORTANT)
+        traded_today = already_traded_today()
+        log.info(
+            "[Monitor] auto_buy_enabled=%s | after_931=%s | already_traded_today=%s",
+            self.auto_buy_enabled,
+            _after_931(),
+            traded_today
+        )
 
         if not self.auto_buy_enabled or not _after_931():
             return
