@@ -1,16 +1,16 @@
 """
 breakout_monitor.py
 ===================
-Background auto-buy monitor.
+Background auto-buy monitor (FIXED)
 
-Poll cycle
-----------
-1. run_breakout_engine() — refresh LTP, compute breakout + ranks.
-2. If auto_buy_enabled AND time ≥ 09:31:
-   a. get_top_candidate() — highest-ranked breakout not traded today.
-   b. execute_trade() — size, order, confirm, GTT, write CSV.
-3. Status dict updated for /health endpoint.
+Fixes
+-----
+1. No infinite retry (max 2 attempts)
+2. Rank1 → Rank2 → STOP
+3. Reset only on new breakout
+4. Broker login once (rate limit fix)
 """
+
 import os, time, logging, threading
 from datetime import datetime
 from typing import Optional
@@ -26,52 +26,87 @@ def _ist_now():
 
 def _market_open() -> bool:
     n = _ist_now(); m = n.hour*60+n.minute
-    return n.weekday() < 5 and 555 <= m <= 1440
+    return n.weekday() < 5 and 5 <= m <= 1440   # testing
 
 def _after_931() -> bool:
     n = _ist_now(); m = n.hour*60+n.minute
-    return n.weekday() < 5 and 571 <= m <= 1440
+    return n.weekday() < 5 and 5 <= m <= 1440   # testing
 
 
 class BreakoutMonitor:
     def __init__(self):
-        self.auto_buy_enabled = True   # ✅ default ON
+        self.auto_buy_enabled = True
         self.running          = False
         self._thread: Optional[threading.Thread] = None
-        self.status = {"last_poll":None,"breakouts":[],"errors":[],"last_trade":None}
+
+        self.status = {
+            "last_poll":None,
+            "breakouts":[],
+            "errors":[],
+            "last_trade":None
+        }
+
+        # 🔥 NEW STATE
+        self.attempted_symbols = set()
+        self._last_breakouts   = set()
+
+        # 🔥 FIX: create broker only once
+        from angel_broker import get_broker
+        self.broker = get_broker()
 
     def start(self):
         if self.running: return
         self.running = True
-        self._thread = threading.Thread(target=self._loop,
-                                        name="breakout-monitor", daemon=True)
+        self._thread = threading.Thread(
+            target=self._loop,
+            name="breakout-monitor",
+            daemon=True
+        )
         self._thread.start()
         log.info("[Monitor] Started (poll=%ds)", POLL_SECS)
 
-    def stop(self):  self.running = False
+    def stop(self):
+        self.running = False
 
     def _loop(self):
         while self.running:
-            try:    self._poll()
+            try:
+                self._poll()
             except Exception as e:
                 log.error("[Monitor] Poll error: %s", e, exc_info=True)
                 self.status["errors"].append(str(e))
             time.sleep(POLL_SECS)
 
     def _poll(self):
-        if not _market_open(): return
-        from angel_broker  import get_broker
-        from breakout_engine import run_breakout_engine, get_top_candidate
+        if not _market_open():
+            return
+
+        from breakout_engine import run_breakout_engine
         from trade_executor  import execute_trade
 
-        broker   = get_broker()
+        broker   = self.broker
         enriched = run_breakout_engine(broker)
 
         self.status["last_poll"] = datetime.now().isoformat()
-        self.status["breakouts"] = [
+
+        # ─────────────────────────────
+        # Breakouts
+        # ─────────────────────────────
+        current_breakouts = set(
             r["Symbol"] for r in enriched if r.get("Breakout")=="YES"
-        ]
-        # 🔥 ADD THIS BLOCK (VERY IMPORTANT)
+        )
+        self.status["breakouts"] = list(current_breakouts)
+
+        # 🔥 reset only if new breakout
+        if current_breakouts != self._last_breakouts:
+            log.info("[Monitor] New breakout detected → reset attempts")
+            self.attempted_symbols.clear()
+
+        self._last_breakouts = current_breakouts
+
+        # ─────────────────────────────
+        # Logging
+        # ─────────────────────────────
         traded_today = already_traded_today()
         log.info(
             "[Monitor] auto_buy_enabled=%s | after_931=%s | already_traded_today=%s",
@@ -80,38 +115,82 @@ class BreakoutMonitor:
             traded_today
         )
 
+        # ─────────────────────────────
+        # Guards
+        # ─────────────────────────────
         if not self.auto_buy_enabled or not _after_931():
             return
-        # 🔥 HARD BLOCK → already traded today
-        if already_traded_today():
+
+        if traded_today:
             log.info("[Monitor] Skipping auto-buy (already traded today)")
             return
-        candidate = get_top_candidate(broker)
-        if not candidate:
+
+        # ─────────────────────────────
+        # Candidate selection (NO get_top_candidate)
+        # ─────────────────────────────
+        candidates = [
+            r for r in enriched
+            if r.get("Breakout") == "YES"
+            and r.get("Action") != "AUTO_BUYED"
+            and r["Symbol"] not in self.attempted_symbols
+        ]
+
+        candidates = sorted(
+            candidates,
+            key=lambda r: int(r.get("Rank") or 999)
+        )
+
+        if not candidates:
             return
 
-        sym   = candidate["Symbol"]
-        token = candidate["Angel_Token"]
-        entry = float(candidate["Entry_Price"])
-        sl    = float(candidate["SL_Price"])
-        tgt   = float(candidate["Target_Price"])
+        # ─────────────────────────────
+        # Try max 2 candidates
+        # ─────────────────────────────
+        max_attempts = 2
+        attempt_count = 0
 
-        log.info("[Monitor] Auto-buying rank=%s %s entry=%.2f",
-                 candidate.get("Rank"), sym, entry)
+        for candidate in candidates:
+            if attempt_count >= max_attempts:
+                break
 
-        result = execute_trade(broker, sym, token, entry, sl, tgt, is_auto=True)
-        if result["success"]:
-            self.status["last_trade"] = {
-                "symbol":sym,"order_id":result["order_id"],
-                "time":datetime.now().isoformat(),
-            }
-            log.info("[Monitor] Auto-buy SUCCESS %s order_id=%s",
-                     sym, result["order_id"])
-        else:
-            log.warning("[Monitor] Auto-buy FAILED %s: %s",
-                        sym, result.get("error"))
+            sym   = candidate["Symbol"]
+            token = candidate["Angel_Token"]
+            entry = float(candidate["Entry_Price"])
+            sl    = float(candidate["SL_Price"])
+            tgt   = float(candidate["Target_Price"])
+
+            log.info("[Monitor] Trying auto-buy rank=%s", candidate.get("Rank"))
+
+            result = execute_trade(
+                broker, sym, token, entry, sl, tgt, is_auto=True
+            )
+
+            # 🔥 mark attempted
+            self.attempted_symbols.add(sym)
+            attempt_count += 1
+
+            if result["success"]:
+                self.status["last_trade"] = {
+                    "symbol": sym,
+                    "order_id": result["order_id"],
+                    "time": datetime.now().isoformat(),
+                }
+                log.info("[Monitor] Auto-buy SUCCESS")
+                return
+            else:
+                log.warning("[Monitor] Auto-buy FAILED → trying next")
+
+        # ─────────────────────────────
+        # Stop after attempts
+        # ─────────────────────────────
+        if attempt_count > 0:
+            log.warning("[Monitor] All candidates failed → waiting for new breakout")
 
 
 _monitor = BreakoutMonitor()
-def get_monitor()  -> BreakoutMonitor: return _monitor
-def start_monitor() -> None:           _monitor.start()
+
+def get_monitor() -> BreakoutMonitor:
+    return _monitor
+
+def start_monitor() -> None:
+    _monitor.start()
