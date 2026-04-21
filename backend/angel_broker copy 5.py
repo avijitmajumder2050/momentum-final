@@ -119,70 +119,28 @@ class AngelBroker:
 
     # ── Session ───────────────────────────────────────────────────────────────
     def _login(self) -> None:
-        with self._lock:
-            # 🔥 prevent frequent re-login
-            if time.time() - self._last_login < 30:
-                return
-
-            totp = pyotp.TOTP(self.totp_secret).now()
-            obj  = SmartConnect(api_key=self.api_key)
-
-            try:
-                d = obj.generateSession(self.client_id, self.password, totp)
-            except Exception as e:
-                log.error("[Angel] Login error: %s", e)
-                time.sleep(2)
-                raise
-
-            if not d.get("status"):
-                raise RuntimeError(f"Login failed: {d.get('message')}")
-
-            self._obj = obj
-            self._last_login = time.time()
-
-            log.info("[Angel] Session established")
+        totp = pyotp.TOTP(self.totp_secret).now()
+        obj  = SmartConnect(api_key=self.api_key)
+        d    = obj.generateSession(self.client_id, self.password, totp)
+        if not d.get("status"):
+            raise RuntimeError(f"Login failed: {d.get('message')}")
+        self._obj = obj; self._last_login = time.time()
+        log.info("[Angel] Session established")
 
     def _ensure_session(self) -> None:
-        if not self._obj:
-            self._login()
-            return
+        with self._lock:
+            if time.time() - self._last_login > SESSION_TTL:
+                self._login()
 
-        if time.time() - self._last_login > SESSION_TTL:
-            log.info("[Angel] Session refresh")
-            self._login()
-
-    # ─────────────────────────────────────────
-    # SAFE API CALL (FIXED)
-    # ─────────────────────────────────────────
     def _call(self, fn, *args, **kwargs):
         self._ensure_session()
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            if any(k in str(e).lower() for k in ("unauthorized","session","jwt")):
+                self._login(); return fn(*args, **kwargs)
+            raise
 
-        retries = 3
-        delay   = 1
-
-        for attempt in range(retries):
-            try:
-                return fn(*args, **kwargs)
-
-            except Exception as e:
-                msg = str(e).lower()
-
-                # session expired
-                if any(k in msg for k in ("unauthorized","session","jwt")):
-                    log.warning("[Session] expired → relogin")
-                    self._login()
-                    continue
-
-                # rate limit
-                if "access denied" in msg or "rate" in msg:
-                    log.warning("[RateLimit] retry %d", attempt+1)
-                    time.sleep(delay)
-                    delay *= 2
-                    continue
-
-                raise
-
-        raise RuntimeError("API failed after retries")
     # ── LTP ───────────────────────────────────────────────────────────────────
     def get_ltp(self, exchange: str, trading_symbol: str, token: str) -> float:
         r = self._call(self._obj.ltpData, exchange, trading_symbol, token)
