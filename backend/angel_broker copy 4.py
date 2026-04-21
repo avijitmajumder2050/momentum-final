@@ -42,7 +42,7 @@ class AngelBroker:
                           or self._ssm_param("/momentum-watchlist/S3_BUCKET"))
         self.token_map: dict = {}
         self.reload_token_map()
-        #self._login()
+        self._login()
         self._funds_cache = None
         self._funds_last  = 0
         self._funds_ttl   = 5   # seconds (tune: 5–15 sec)
@@ -117,33 +117,21 @@ class AngelBroker:
         """DELIVERY if margin==1, else MARGIN."""
         return "DELIVERY" if self.get_margin(symbol) == 1.0 else "MARGIN"
 
-    
     # ── Session ───────────────────────────────────────────────────────────────
     def _login(self) -> None:
-        """Fixed: Uses a lock to prevent multiple simultaneous login attempts"""
-        with self._lock:
-            # Check again inside lock to see if another thread logged in
-            if self._obj is not None and (time.time() - self._last_login < SESSION_TTL):
-                return
-                
-            log.info("[Angel] Generating new session...")
-            totp = pyotp.TOTP(self.totp_secret).now()
-            obj  = SmartConnect(api_key=self.api_key)
-            d    = obj.generateSession(self.client_id, self.password, totp)
-            
-            if not d.get("status"):
-                # If rate limited, sleep briefly to avoid hammer effect
-                if "rate" in str(d.get('message')).lower():
-                    time.sleep(2) 
-                raise RuntimeError(f"Login failed: {d.get('message')}")
-                
-            self._obj = obj
-            self._last_login = time.time()
-            log.info("[Angel] Session established")
+        totp = pyotp.TOTP(self.totp_secret).now()
+        obj  = SmartConnect(api_key=self.api_key)
+        d    = obj.generateSession(self.client_id, self.password, totp)
+        if not d.get("status"):
+            raise RuntimeError(f"Login failed: {d.get('message')}")
+        self._obj = obj; self._last_login = time.time()
+        log.info("[Angel] Session established")
 
     def _ensure_session(self) -> None:
-        if self._obj is None or (time.time() - self._last_login > SESSION_TTL):
-            self._login()
+        with self._lock:
+            if time.time() - self._last_login > SESSION_TTL:
+                self._login()
+
     def _call(self, fn, *args, **kwargs):
         self._ensure_session()
         try:
@@ -262,13 +250,9 @@ class AngelBroker:
             "price":"0","squareoff":"0","stoploss":"0","quantity":str(qty),
         }
         r = self._call(self._obj.placeOrder, params)
-        if r:
-            oid = str(r)
-            log.info("[Order] OK — order_id=%s", oid)
-            return {"status":"success","order_id":oid}
-            
-        log.warning("[Order] FAILED: empty response")
-        return {"status": "error", "message": "empty response"}
+        if r.get("status"):
+            return {"status":"success","order_id":r.get("data",{}).get("orderid","")}
+        return {"status":"error","message":r.get("message","")}
 
     # ── GTT ───────────────────────────────────────────────────────────────────
     def place_gtt_order(
