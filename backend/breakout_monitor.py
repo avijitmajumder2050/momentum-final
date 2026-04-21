@@ -14,6 +14,7 @@ Poll cycle
 import os, time, logging, threading
 from datetime import datetime
 from typing import Optional
+from trade_s3 import already_traded_today
 
 log       = logging.getLogger(__name__)
 POLL_SECS = int(os.getenv("MONITOR_INTERVAL","15"))
@@ -34,7 +35,7 @@ def _after_931() -> bool:
 
 class BreakoutMonitor:
     def __init__(self):
-        self.auto_buy_enabled = False
+        self.auto_buy_enabled = True   # ✅ default ON
         self.running          = False
         self._thread: Optional[threading.Thread] = None
         self.status = {"last_poll":None,"breakouts":[],"errors":[],"last_trade":None}
@@ -73,7 +74,10 @@ class BreakoutMonitor:
 
         if not self.auto_buy_enabled or not _after_931():
             return
-
+        # 🔥 HARD BLOCK → already traded today
+        if already_traded_today():
+            log.info("[Monitor] Skipping auto-buy (already traded today)")
+            return
         candidate = get_top_candidate(broker)
         if not candidate:
             return

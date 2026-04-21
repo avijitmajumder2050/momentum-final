@@ -178,16 +178,10 @@ def get_trade(order_id: str) -> Optional[Dict]:
     return None
 
 
-def already_traded_today() -> bool:
-    """
-    Returns True if ANY trade (ACTIVE or CLOSED) was opened today.
-    Used for AUTO BUY restriction (1 trade per day).
-    """
+def already_traded_today(symbol: str) -> bool:
     today = datetime.now().strftime("%Y-%m-%d")
-
     for r in _read():
-        entry_time = r.get("Entry_Time", "")
-        if entry_time.startswith(today):
-            return True
-
+        if r["Symbol"].upper() == symbol.upper():
+            if r.get("Entry_Time","").startswith(today):
+                return True
     return False

@@ -46,11 +46,8 @@ def execute_trade(
     )
 
     # ── Rule: one trade per day ─────────────────────────────
-    if  is_auto and already_traded_today():
-         return {
-        "success": False,
-        "error": "Auto trade already taken today"
-    }
+    if already_traded_today(symbol):
+        return {"success": False, "error": f"Already traded {symbol} today"}
 
     # ── Funds check ─────────────────────────────────────────
     funds = broker.get_funds()
@@ -131,9 +128,7 @@ def execute_trade(
         gtt_id=gtt_id,
     )
 
-    
-    if is_auto:
-       mark_auto_buyed(symbol)
+    mark_auto_buyed(symbol)
 
     return {
         "success": True,
