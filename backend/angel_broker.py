@@ -42,7 +42,7 @@ class AngelBroker:
                           or self._ssm_param("/momentum-watchlist/S3_BUCKET"))
         self.token_map: dict = {}
         self.reload_token_map()
-        #self._login()
+        self._login()
         self._funds_cache = None
         self._funds_last  = 0
         self._funds_ttl   = 5   # seconds (tune: 5–15 sec)
