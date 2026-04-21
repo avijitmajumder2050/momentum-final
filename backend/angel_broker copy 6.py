@@ -18,7 +18,7 @@ import pandas as pd
 from SmartApi import SmartConnect
 
 log          = logging.getLogger(__name__)
-
+SESSION_TTL  = 6 * 3600
 BULK_BATCH   = 50
 GTT_DAYS     = 365
 TOKEN_S3_KEY = "angel/angel_tokens_dump_margin.csv"
@@ -42,7 +42,7 @@ class AngelBroker:
                           or self._ssm_param("/momentum-watchlist/S3_BUCKET"))
         self.token_map: dict = {}
         self.reload_token_map()
-        self._login()
+        #self._login()
         self._funds_cache = None
         self._funds_last  = 0
         self._funds_ttl   = 5   # seconds (tune: 5–15 sec)
@@ -120,8 +120,8 @@ class AngelBroker:
     # ── Session ───────────────────────────────────────────────────────────────
     def _login(self) -> None:
         with self._lock:
-            # 🔥 Already logged in → skip
-            if self._obj:
+            # 🔥 prevent frequent re-login
+            if time.time() - self._last_login < 30:
                 return
 
             totp = pyotp.TOTP(self.totp_secret).now()
@@ -138,7 +138,7 @@ class AngelBroker:
                 raise RuntimeError(f"Login failed: {d.get('message')}")
 
             self._obj = obj
-            
+            self._last_login = time.time()
 
             log.info("[Angel] Session established")
 
@@ -147,7 +147,9 @@ class AngelBroker:
             self._login()
             return
 
-        
+        if time.time() - self._last_login > SESSION_TTL:
+            log.info("[Angel] Session refresh")
+            self._login()
 
     # ─────────────────────────────────────────
     # SAFE API CALL (FIXED)
@@ -168,7 +170,6 @@ class AngelBroker:
                 # session expired
                 if any(k in msg for k in ("unauthorized","session","jwt")):
                     log.warning("[Session] expired → relogin")
-                    self._obj = None
                     self._login()
                     continue
 
