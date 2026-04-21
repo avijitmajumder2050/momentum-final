@@ -139,7 +139,7 @@ def get_top_candidate(broker) -> Dict | None:
         r for r in enriched
         if r.get("Breakout")  == "YES"
         and r.get("Action")   != "AUTO_BUYED"
-        and not already_traded_today(r["Symbol"])
+        and not already_traded_today()
     ]
     if not candidates:
         return None
