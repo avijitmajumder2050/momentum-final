@@ -246,6 +246,7 @@ class AngelBroker:
             "squareoff":       "0",
             "stoploss":        "0",
             "quantity":        str(qty),
+            "scripconsent":    "yes",  # <--- Added this line
         }
         log.info("[Order] %s %d×%s @ %.2f [%s]",
                  transaction.upper(), qty, trading_symbol, price, product_type)
@@ -288,7 +289,7 @@ class AngelBroker:
             "symboltoken":str(token),"transactiontype":"SELL",
             "exchange":exchange,"ordertype":"MARKET",
             "producttype":product_type,"duration":"DAY",
-            "price":"0","squareoff":"0","stoploss":"0","quantity":str(qty),
+            "price":"0","squareoff":"0","stoploss":"0","quantity":str(qty),"scripconsent":   "yes",
         }
         r = self._call(self._obj.placeOrder, params)
         if r:
