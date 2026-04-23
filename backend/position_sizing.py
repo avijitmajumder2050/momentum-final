@@ -27,7 +27,7 @@ def calculate(
     if available_balance <= 0:
         return {"success":False,"message":"Zero balance"}
 
-    deployable     = (available_balance * DEPLOY_PCT) / 3
+    deployable     = (available_balance * DEPLOY_PCT)
     risk_per_trade = min(MAX_LOSS, deployable * RISK_PCT)
     base_qty       = math.floor(risk_per_trade / sl_dist)
     quantity       = max(1, math.floor(base_qty * margin_leverage))
