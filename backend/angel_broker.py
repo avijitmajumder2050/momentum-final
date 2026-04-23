@@ -130,13 +130,10 @@ class AngelBroker:
 
         with _login_lock:
 
-            # already logged in → skip
             if self._obj:
                 return
 
             now = time.time()
-
-            # 🔥 enforce rate limit
             wait = LOGIN_COOLDOWN - (now - _last_login_ts)
             if wait > 0:
                 log.warning("[Angel] Rate-limit sleep %.2fs", wait)
@@ -148,17 +145,16 @@ class AngelBroker:
             try:
                 d = obj.generateSession(self.client_id, self.password, totp)
             except Exception as e:
-                log.error("[Angel] Login error: %s", e)
-                return   # ❗ DO NOT crash
+                raise RuntimeError(f"[Angel] Login exception: {e}")   # ✅ FIX
 
             _last_login_ts = time.time()
 
             if not d.get("status"):
-                log.error("[Angel] Login failed: %s", d.get("message"))
-                return
+                raise RuntimeError(f"[Angel] Login failed: {d.get('message')}")  # ✅ FIX
 
             self._obj = obj
-            self._last_login = time.time()   # ✅ add this
+            self._last_login = time.time()
+
             log.info("[Angel] Session established")
 
     # ─────────────────────────────────────────
