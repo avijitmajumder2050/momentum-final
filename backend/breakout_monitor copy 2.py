@@ -18,7 +18,6 @@ from trade_s3 import already_traded_today
 
 log       = logging.getLogger(__name__)
 POLL_SECS = int(os.getenv("MONITOR_INTERVAL","15"))
-TRADE_LOCK = threading.Lock()
 
 
 def _ist_now():
@@ -39,8 +38,6 @@ class BreakoutMonitor:
         self.auto_buy_enabled = True
         self.running          = False
         self._thread: Optional[threading.Thread] = None
-        self.trade_done = False
-        
 
         self.status = {
             "last_poll":None,
@@ -101,7 +98,7 @@ class BreakoutMonitor:
         self.status["breakouts"] = list(current_breakouts)
 
         # 🔥 reset only if new breakout
-        if current_breakouts and current_breakouts != self._last_breakouts:
+        if current_breakouts != self._last_breakouts:
             log.info("[Monitor] New breakout detected → reset attempts")
             self.attempted_symbols.clear()
 
@@ -163,16 +160,10 @@ class BreakoutMonitor:
             tgt   = float(candidate["Target_Price"])
 
             log.info("[Monitor] Trying auto-buy rank=%s", candidate.get("Rank"))
-            with TRADE_LOCK:
-                if already_traded_today():
-                    log.info("[Monitor] Trade already done (locked)")
-                    return
 
-                result = execute_trade(
-                    broker, sym, token, entry, sl, tgt, is_auto=True
-                )
-                if result["success"]:
-                    self.trade_done = True
+            result = execute_trade(
+                broker, sym, token, entry, sl, tgt, is_auto=True
+            )
 
             # 🔥 mark attempted
             self.attempted_symbols.add(sym)
@@ -188,7 +179,6 @@ class BreakoutMonitor:
                 return
             else:
                 log.warning("[Monitor] Auto-buy FAILED → trying next")
-                time.sleep(2)   # 🔥 IMPORTANT
 
         # ─────────────────────────────
         # Stop after attempts
@@ -198,18 +188,9 @@ class BreakoutMonitor:
 
 
 _monitor = BreakoutMonitor()
-_started = False
-_start_lock = threading.Lock()
 
 def get_monitor() -> BreakoutMonitor:
     return _monitor
 
 def start_monitor() -> None:
-    global _started
-
-    with _start_lock:
-        if _started:
-            return
-        _started = True
-
     _monitor.start()

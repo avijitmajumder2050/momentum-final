@@ -17,8 +17,7 @@ RUN mkdir -p uploads && chown -R appuser:appuser /app
 USER appuser
 
 CMD ["gunicorn",
-     "--workers", "1",
-     "--threads", "2",
+     "--workers", "2",
      "--bind", "0.0.0.0:5000",
      "--timeout", "120",
      "--access-logfile", "-",

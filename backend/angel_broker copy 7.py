@@ -17,15 +17,11 @@ import pyotp, boto3
 import pandas as pd
 from SmartApi import SmartConnect
 
-
 log          = logging.getLogger(__name__)
 
 BULK_BATCH   = 50
 GTT_DAYS     = 365
 TOKEN_S3_KEY = "angel/angel_tokens_dump_margin.csv"
-_login_lock = threading.Lock()
-_last_login_ts = 0
-LOGIN_COOLDOWN = 2   # safer than 1 sec
 
 
 class AngelBroker:
@@ -38,9 +34,6 @@ class AngelBroker:
         self._obj: Optional[SmartConnect] = None
         self._lock       = threading.Lock()
         self._last_login = 0.0
-        self._api_lock = threading.Lock()
-        self._last_api_call = 0
-        self._api_gap = 1.1   # 1 sec + buffer
 
         self._ssm = boto3.client("ssm", region_name=os.getenv("AWS_REGION","ap-south-1"))
         self._s3  = boto3.client("s3",  region_name=os.getenv("AWS_REGION","ap-south-1"))
@@ -49,7 +42,7 @@ class AngelBroker:
                           or self._ssm_param("/momentum-watchlist/S3_BUCKET"))
         self.token_map: dict = {}
         self.reload_token_map()
-        #self._login()
+        self._login()
         self._funds_cache = None
         self._funds_last  = 0
         self._funds_ttl   = 5   # seconds (tune: 5–15 sec)
@@ -126,21 +119,10 @@ class AngelBroker:
 
     # ── Session ───────────────────────────────────────────────────────────────
     def _login(self) -> None:
-        global _last_login_ts
-
-        with _login_lock:
-
-            # already logged in → skip
+        with self._lock:
+            # 🔥 Already logged in → skip
             if self._obj:
                 return
-
-            now = time.time()
-
-            # 🔥 enforce rate limit
-            wait = LOGIN_COOLDOWN - (now - _last_login_ts)
-            if wait > 0:
-                log.warning("[Angel] Rate-limit sleep %.2fs", wait)
-                time.sleep(wait)
 
             totp = pyotp.TOTP(self.totp_secret).now()
             obj  = SmartConnect(api_key=self.api_key)
@@ -149,81 +131,57 @@ class AngelBroker:
                 d = obj.generateSession(self.client_id, self.password, totp)
             except Exception as e:
                 log.error("[Angel] Login error: %s", e)
-                return   # ❗ DO NOT crash
-
-            _last_login_ts = time.time()
+                time.sleep(2)
+                raise
 
             if not d.get("status"):
-                log.error("[Angel] Login failed: %s", d.get("message"))
-                return
+                raise RuntimeError(f"Login failed: {d.get('message')}")
 
             self._obj = obj
-            self._last_login = time.time()   # ✅ add this
+            
+
             log.info("[Angel] Session established")
+
+    def _ensure_session(self) -> None:
+        if not self._obj:
+            self._login()
+            return
+
+        
 
     # ─────────────────────────────────────────
     # SAFE API CALL (FIXED)
     # ─────────────────────────────────────────
-    def _ensure_session(self) -> None:
-        """
-        Ensure session exists before API call.
-        Thread-safe + prevents multiple logins.
-        """
-        if self._obj:
-            return
-
-        with self._lock:
-            if self._obj:   # double-check
-                return
-
-            self._login()
-
-            if not self._obj:
-                raise RuntimeError("Login failed — no session available")
-            
-
     def _call(self, fn, *args, **kwargs):
+        self._ensure_session()
+
         retries = 3
         delay   = 1
 
         for attempt in range(retries):
             try:
-                self._ensure_session()
-
-                # ✅ GLOBAL RATE LIMIT
-                with self._api_lock:
-                    now = time.time()
-                    wait = self._api_gap - (now - self._last_api_call)
-                    if wait > 0:
-                        log.debug("[RateLimit] sleep %.2fs", wait)
-                        time.sleep(wait)
-
-                    result = fn(*args, **kwargs)
-                    self._last_api_call = time.time()
-
-                return result
+                return fn(*args, **kwargs)
 
             except Exception as e:
                 msg = str(e).lower()
 
-                # 🔁 session expired
+                # session expired
                 if any(k in msg for k in ("unauthorized","session","jwt")):
                     log.warning("[Session] expired → relogin")
                     self._obj = None
+                    self._login()
                     continue
 
-                # 🚫 rate limit retry
+                # rate limit
                 if "access denied" in msg or "rate" in msg:
                     log.warning("[RateLimit] retry %d", attempt+1)
                     time.sleep(delay)
                     delay *= 2
                     continue
 
-                log.error("[API] unexpected error: %s", e)
-                break
+                raise
 
         raise RuntimeError("API failed after retries")
-            
     # ── LTP ───────────────────────────────────────────────────────────────────
     def get_ltp(self, exchange: str, trading_symbol: str, token: str) -> float:
         r = self._call(self._obj.ltpData, exchange, trading_symbol, token)
