@@ -6,10 +6,7 @@ risk        = min(MAX_LOSS, deployable * RISK_PCT)
 base_qty    = floor(risk / sl_distance)
 quantity    = max(1, floor(base_qty * margin_leverage))
 """
-import logging
 import os, math
-
-log = logging.getLogger(__name__)
 
 DEPLOY_PCT = float(os.getenv("DEPLOY_PCT","0.30"))
 RISK_PCT   = float(os.getenv("RISK_PCT",  "0.04"))
@@ -22,25 +19,12 @@ def calculate(
     sl_price:          float,
     margin_leverage:   float = 1.0,
 ) -> dict:
- # ── INPUT log ─────────────────────────────────────────────────────────
-    log.info(
-        "[Sizing] ── INPUT ──────────────────────────────────────────"
-    )
-    log.info(
-        "[Sizing]   balance=₹%.2f  entry=%.2f  sl=%.2f  leverage=%.2f×",
-        available_balance, entry_price, sl_price, margin_leverage,
-    )
     sl_dist = abs(entry_price - sl_price)
     if sl_dist <= 0:
-        log.warning("[Sizing]   REJECTED — SL distance is zero")
         return {"success":False,"message":"SL distance is zero"}
     if sl_price >= entry_price:
-        log.warning(
-            "[Sizing]   REJECTED — SL %.2f >= Entry %.2f", sl_price, entry_price
-        )
         return {"success":False,"message":"SL must be below entry"}
     if available_balance <= 0:
-        log.warning("[Sizing]   REJECTED — available balance is zero")
         return {"success":False,"message":"Zero balance"}
 
     
@@ -61,45 +45,11 @@ def calculate(
     # ─────────────────────────────
     quantity = max(0, min(qty_by_risk, qty_by_fund))
     # 🔥 IMPORTANT: skip trade if qty < 1
-# ── CALCULATION log ───────────────────────────────────────────────────
-    log.info(
-        "[Sizing] ── CALCULATION ────────────────────────────────────"
-    )
-    log.info(
-        "[Sizing]   sl_distance=%.2f  risk_cap=₹%.2f  (MAX_LOSS=₹%.0f | RISK_PCT=%.0f%%)",
-        sl_dist, risk_per_trade, MAX_LOSS, RISK_PCT * 100,
-    )
-    log.info(
-        "[Sizing]   qty_by_risk=%d  (₹%.2f / %.2f per share)",
-        qty_by_risk, risk_per_trade, sl_dist,
-    )
-    log.info(
-        "[Sizing]   deployable=₹%.2f  qty_by_fund=%d  (₹%.2f × %.2f× / %.2f)",
-        deployable, qty_by_fund, deployable, margin_leverage, entry_price,
-    )
-    log.info(
-        "[Sizing]   final_qty=min(%d, %d) = %d",
-        qty_by_risk, qty_by_fund, quantity,
-    )
     if quantity < 1:
-        log.warning(
-            "[Sizing]   REJECTED — qty=%d < 1  "
-            "(balance too low or SL distance too wide)",
-            quantity,
-        )
         return {
             "success": False,
             "message": "SAFE mode → qty < 1 (insufficient funds or high SL)"
         }
-    actual_risk = round(sl_dist * quantity, 2)
-    log.info(
-        "[Sizing] ── RESULT ─────────────────────────────────────────"
-    )
-    log.info(
-        "[Sizing]   qty=%d  actual_risk=₹%.2f  "
-        "deployable=₹%.2f  leverage=%.2f×  ✓",
-        quantity, actual_risk, deployable, margin_leverage,
-    )
     return {
         "success":            True,
         "quantity":           quantity,

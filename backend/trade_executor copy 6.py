@@ -24,19 +24,10 @@ from watchlist_s3 import mark_auto_buyed
 log = logging.getLogger(__name__)
 
 ORDER_POLL_SECS = 2
-ORDER_TIMEOUT = 1800
+ORDER_TIMEOUT = 30
 
 
 # ─────────────────────────────────────────────
-# ─────────────────────────────────────────────────────────────────────────────
-# HELPERS
-# ─────────────────────────────────────────────────────────────────────────────
-def _divider(label: str = "") -> None:
-    """Emit a visible section divider to the log."""
-    if label:
-        log.info("[Executor] ── %s %s", label, "─" * max(0, 48 - len(label)))
-    else:
-        log.info("[Executor] %s", "─" * 52)
 # MAIN EXECUTION
 # ─────────────────────────────────────────────
 def execute_trade(
@@ -46,20 +37,9 @@ def execute_trade(
     entry_price: float,
     sl_price: float,
     target_price: float,
-    is_auto: bool = True, 
+    is_auto: bool = False,
 ) -> dict:
 
-    
-     # ── TRADE REQUEST ─────────────────────────────────────────────────────
-    _divider("TRADE REQUEST")
-    log.info("[Executor]   symbol       = %s", symbol)
-    log.info("[Executor]   angel_token  = %s", angel_token)
-    log.info("[Executor]   entry_price  = %.2f", entry_price)
-    log.info("[Executor]   sl_price     = %.2f", sl_price)
-    log.info("[Executor]   target_price = %.2f", target_price)
-    log.info("[Executor]   risk_reward  = 1 : %.2f",
-             (target_price - entry_price) / max(entry_price - sl_price, 0.01))
-    log.info("[Executor]   mode         = %s", "AUTO" if is_auto else "MANUAL")
     log.info(
         "[Executor] %s entry=%.2f sl=%.2f tgt=%.2f auto=%s",
         symbol, entry_price, sl_price, target_price, is_auto
@@ -67,108 +47,62 @@ def execute_trade(
 
     # ── Rule: one trade per day ─────────────────────────────
     if  is_auto and already_traded_today():
-         log.warning("[Executor]   BLOCKED — auto trade already taken today")
          return {
         "success": False,
         "error": "Auto trade already taken today"
     }
 
     # ── Funds check ─────────────────────────────────────────
-    _divider("FUNDS CHECK")
     funds = broker.get_funds()
     balance = funds.get("available_balance", 0)
-    log.info("[Executor]   funds_response   = %s", funds)
-    log.info("[Executor]   available_balance = ₹%.2f", balance)
 
     if balance <= 0:
-        log.warning("[Executor]   BLOCKED — zero balance")
         return {"success": False, "error": "Zero balance"}
 
     margin = broker.get_margin(symbol)
-    log.info("[Executor]   margin_leverage  = %.2f×", margin)
 
-    # ── Position sizing ───────────────────────────────────────────────────
-    _divider("POSITION SIZING")
     sizing = calculate(balance, entry_price, sl_price, margin)
     if not sizing["success"]:
-        log.warning("[Executor]   SIZING FAILED — %s", sizing["message"])
         return {"success": False, "error": sizing["message"]}
 
     qty = sizing["quantity"]
     log.info("[Executor] %s qty=%d risk=₹%.2f leverage=%.1f×",
              symbol, qty, sizing["risk_per_trade"], margin)
-    
-    _divider("LIMIT EXECUTION LOGIC")
-
-    ltp = broker.get_ltp_with_retry("NSE", symbol, angel_token)
-    if not ltp or ltp <= 0:
-        log.warning("[Executor] LTP unavailable → using entry_price fallback")
-        ltp = entry_price
-
-    buffer = max(1, round(entry_price * 0.001, 2))   # dynamic buffer
-
-    # 🔥 KEY LOGIC
-    limit_price = max(entry_price, ltp + buffer)
-
-    log.info("[Executor]   LTP            = %.2f", ltp)
-    log.info("[Executor]   entry_price    = %.2f", entry_price)
-    log.info("[Executor]   buffer         = %.2f", buffer)
-    log.info("[Executor]   final_limit    = %.2f", limit_price)
-
-    if limit_price > ltp:
-        log.info("[Executor]   ⚡ aggressive limit → instant fill expected")
-    else:
-        log.info("[Executor]   ⏳ passive limit → may wait")
 
     # ── Place BUY order ─────────────────────────────────────
     order = broker.place_limit_order(
         trading_symbol=symbol,
         token=angel_token,
         qty=qty,
-        price=limit_price,
+        price=entry_price,
         transaction="BUY",
     )
 
-  # ── ORDER RESPONSE ────────────────────────────────────────────────────
-    _divider("PLACE ORDER")
-    log.info("[Executor]   order_response = %s", order)
     if order["status"] != "success":
-         log.error("[Executor]   ORDER FAILED — %s", order.get("message"))
          return {"success":False,"error":f"Order placement failed: {order.get('message')}"}
 
     order_id = order["order_id"]
     log.info("[Executor] Order placed order_id=%s — waiting for COMPLETE...", order_id)
 
     # ── Wait for COMPLETE ───────────────────────────────────
-# ── Wait for COMPLETE ───────────────────────────────────
-    _divider("ORDER TRACKING")
-    log.info("[Executor]   order_id=%s  timeout=%ds  poll=%ds",
-             order_id, ORDER_TIMEOUT, ORDER_POLL_SECS)
     status = wait_for_order_completion(broker, order_id)
 
-    log.info("[Executor]   final_status = %s", status)
     if status != "COMPLETE":
-        log.error("[Executor]   ORDER NOT COMPLETE — status=%s", status)
         return {"success": False, "error": f"Order not complete: {status}"}
 
     log.info("[Executor] Order COMPLETE → fetching position")
 
     # ── GET REAL EXECUTED POSITION ──────────────────────────
-    _divider("POSITION FETCH")
-    log.info("[Executor]   fetching actual fill for symbol=%s token=%s",
-             symbol, angel_token)
     try:
         real_entry, real_qty = fetch_entry_from_position(
             broker, symbol, angel_token
         )
     except Exception as e:
-        log.error("[Executor]   POSITION FETCH FAILED — %s", e)
         return {"success": False, "error": str(e)}
 
     log.info("[Executor] REAL Entry=%.2f Qty=%d", real_entry, real_qty)
 
     # ── Place GTT ───────────────────────────────────────────
-    _divider("PLACE GTT")
     gtt_id = ""
 
     gtt = broker.place_gtt_order(
@@ -180,15 +114,12 @@ def execute_trade(
         target_price=target_price,
     )
 
-    log.info("[Executor]   raw_response = %s", gtt)
     if gtt["status"] == "success":
         gtt_id = gtt.get("gtt_id", "")
-        log.info("[Executor]   gtt_id       = %s", gtt_id)
     else:
         log.warning("[Executor] GTT failed (non-fatal): %s", gtt.get("message"))
 
     # ── Save trade ──────────────────────────────────────────
-    _divider("TRADE SAVED")
     trade = open_trade(
         order_id=order_id,
         symbol=symbol,
@@ -199,15 +130,11 @@ def execute_trade(
         qty=real_qty,
         gtt_id=gtt_id,
     )
-    log.info("[Executor]   trade_row = %s", trade)
+
     
     if is_auto:
        mark_auto_buyed(symbol)
-       log.info("[Executor]   watchlist marked AUTO_BUYED for %s", symbol)
-    
-    _divider("TRADE COMPLETE")
-    log.info("[Executor]   symbol=%s  order_id=%s  qty=%d  entry=%.2f  gtt=%s",
-             symbol, order_id, real_qty, real_entry, gtt_id or "N/A")
+
     return {
         "success": True,
         "order_id": order_id,

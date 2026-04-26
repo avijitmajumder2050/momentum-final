@@ -256,50 +256,6 @@ class AngelBroker:
             time.sleep(0.3)
         return result
 
-    # ── LTP WITH RETRY (FIXED + PRODUCTION READY) ─────────────────────────
-    def get_ltp_with_retry(
-        self,
-        exchange: str,
-        trading_symbol: str,
-        token: str,
-        retries: int = 5,
-        base_delay: float = 1.5
-    ) -> Optional[float]:
-
-        start = time.time()
-
-        for attempt in range(1, retries + 1):
-            try:
-                ltp = float(self.get_ltp(exchange, trading_symbol, token))
-
-                log.info(
-                    "[LTP] SUCCESS symbol=%s ltp=%.2f attempt=%d latency=%.2fs",
-                    trading_symbol, ltp, attempt, time.time() - start
-                )
-
-                return ltp
-
-            except Exception as e:
-                log.warning(
-                    "[LTP] RETRY symbol=%s attempt=%d/%d err=%s",
-                    trading_symbol, attempt, retries, e
-                )
-
-                if attempt < retries:
-                    sleep_time = base_delay * attempt   # exponential backoff
-                    log.debug(
-                        "[LTP] sleeping %.2fs before retry symbol=%s",
-                        sleep_time, trading_symbol
-                    )
-                    time.sleep(sleep_time)
-
-        # 🔴 HARD FAILURE
-        log.error(
-            "[LTP] FAILED symbol=%s retries=%d total_time=%.2fs",
-            trading_symbol, retries, time.time() - start
-        )
-
-        return None
     # ── Orders ────────────────────────────────────────────────────────────────
     def place_limit_order(
         self,
