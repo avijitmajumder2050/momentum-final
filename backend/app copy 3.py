@@ -60,17 +60,6 @@ start_engine()
 def health():
     mon = get_monitor()
     eng = get_engine()
-    payload = {
-        "status":           "ok",
-        "monitor_running":  mon.running,
-        "auto_buy_enabled": mon.auto_buy_enabled,
-        "engine_running":   eng.running,
-        "breakouts_live":   mon.status.get("breakouts", []),
-        "active_trades":    eng.status.get("active_trades", 0),
-        "last_poll":        mon.status.get("last_poll"),
-        "last_trade":       mon.status.get("last_trade"),
-    }
-    log.debug("[API /health] %s", payload)
     return jsonify({
         "status":           "ok",
         "monitor_running":  mon.running,
@@ -90,11 +79,9 @@ def api_watchlist():
     Returns watchlist rows enriched with live LTP.
     LTP is fetched here — never from CSV.
     """
-    log.info("[API] GET /api/watchlist")
     try:
         broker   = get_broker()
         enriched = run_breakout_engine(broker)
-        log.info("[API] /api/watchlist → %d rows", len(enriched))
         return jsonify({"success":True,"data":enriched})
     except Exception as e:
         log.error("[watchlist] %s", e, exc_info=True)
@@ -113,54 +100,40 @@ def api_add_symbol():
     sl_price     = float(b.get("sl_price",     0))
     target_price = float(b.get("target_price", 0))
 
-    log.info("[API] POST /api/watchlist  symbol=%s  entry=%.2f  sl=%.2f  tgt=%.2f",
-             symbol, entry_price, sl_price, target_price)
     if not symbol:
         return jsonify({"success":False,"error":"symbol required"}),400
     if sl_price >= entry_price:
-        log.warning("[API] /api/watchlist REJECTED — SL %.2f >= entry %.2f",
-                    sl_price, entry_price)
         return jsonify({"success":False,"error":"SL must be below entry"}),400
     if target_price <= entry_price:
-        log.warning("[API] /api/watchlist REJECTED — target %.2f <= entry %.2f",
-                    target_price, entry_price)
         return jsonify({"success":False,"error":"Target must be above entry"}),400
 
     broker      = get_broker()
     angel_token = broker.get_token(symbol) 
     if not angel_token:
-        log.warning("[API] /api/watchlist REJECTED — token not found for %s", symbol)
         return jsonify({
         "success": False,
         "error": f"Token not found for {symbol}. Check token CSV."
     }), 400
-        
+        log.warning("[add] Token not found for %s in CSV map", symbol)
 
     row = add_symbol(symbol, angel_token, entry_price, sl_price, target_price)
-    log.info("[API] /api/watchlist  ADDED %s", row)
     return jsonify({"success":True,"row":row})
 
 
 @app.delete("/api/watchlist/<symbol>")
 def api_delete_symbol(symbol: str):
-    symbol = symbol.upper()
-    log.info("[API] DELETE /api/watchlist/%s", symbol)
     ok = delete_symbol(symbol.upper())
-    log.info("[API] /api/watchlist/%s  deleted=%s", symbol, ok)
     return jsonify({"success":ok})
 
 
 @app.post("/api/watchlist/scan")
 def api_scan():
     """Trigger a manual breakout scan and return enriched rows."""
-    log.info("[API] POST /api/watchlist/scan — manual scan triggered")
     try:
         broker   = get_broker()
         enriched = run_breakout_engine(broker)
-        log.info("[API] /api/watchlist/scan → %d rows", len(enriched))
         return jsonify({"success":True,"data":enriched})
     except Exception as e:
-        log.error("[API] /api/watchlist/scan ERROR: %s", e, exc_info=True)
         return jsonify({"success":False,"error":str(e)}),500
 
 
@@ -173,7 +146,6 @@ def api_active_trades():
     """
     try:
         trades = load_active()
-        log.info("[API] /api/trades/active  active_count=%d", len(trades))
         if not trades:
             return jsonify({"success":True,"data":[]})
 
@@ -205,9 +177,6 @@ def api_active_trades():
 
 @app.get("/api/trades/all")
 def api_all_trades():
-    log.info("[API] GET /api/trades/all")
-    trades = load_trades()
-    log.info("[API] /api/trades/all  total=%d", len(trades))
     return jsonify({"success":True,"data":load_trades()})
 
 
@@ -225,8 +194,6 @@ def api_manual_buy():
     sl_price     = float(b.get("sl_price",     0))
     target_price = float(b.get("target_price", 0))
 
-    log.info("[API] POST /api/trade/buy  symbol=%s  entry=%.2f  sl=%.2f  tgt=%.2f",
-             symbol, entry_price, sl_price, target_price)
     if not symbol:
         return jsonify({"success":False,"error":"symbol required"}),400
 
@@ -237,7 +204,6 @@ def api_manual_buy():
 
     result = execute_trade(broker, symbol, angel_token,
                            entry_price, sl_price, target_price, is_auto=False)
-    log.info("[API] /api/trade/buy  result = %s", result)
     if result["success"]:
         return jsonify(result)
     return jsonify(result), 400
@@ -252,14 +218,11 @@ def api_manual_exit(order_id: str):
     2. Place market SELL.
     3. Mark trade CLOSED with MANUAL_CANCEL.
     """
-    log.info("[API] POST /api/trade/exit/%s", order_id)
     from trade_s3 import get_trade
     trade = get_trade(order_id)
     if not trade:
         return jsonify({"success":False,"error":"Trade not found"}),404
     if trade["Status"] != "ACTIVE":
-        log.warning("[API] /api/trade/exit/%s — trade already CLOSED (status=%s)",
-                    order_id, trade["Status"])
         return jsonify({"success":False,"error":"Trade already closed"}),400
 
     broker = get_broker()
@@ -267,19 +230,14 @@ def api_manual_exit(order_id: str):
     token  = trade["Angel_Token"]
     qty    = int(trade["Qty"])
 
-    log.info("[API] /api/trade/exit/%s  symbol=%s  token=%s  qty=%d",
-             order_id, sym, token, qty)
     if trade.get("GTT_Target_ID"):
-        log.info("[API]   cancelling GTT target id=%s", trade["GTT_Target_ID"])
         broker.cancel_gtt(trade["GTT_Target_ID"], sym, token)
     if trade.get("GTT_SL_ID"):
-        log.info("[API]   cancelling GTT SL id=%s", trade["GTT_SL_ID"])
         broker.cancel_gtt(trade["GTT_SL_ID"], sym, token)
 
     sell = broker.place_sell_market_order(sym, token, qty)
     close_trade(order_id, "MANUAL_CANCEL")
 
-    log.info("[API] /api/trade/exit/%s  DONE  sell_order=%s", order_id, sell)
     return jsonify({"success":True,"sell_order":sell})
 
 
@@ -309,16 +267,12 @@ def api_auto_buy_status():
 # ── P&L ───────────────────────────────────────────────────────────────────────
 @app.get("/api/pnl")
 def api_pnl():
-    log.info("[API] GET /api/pnl")
     try:
         broker = get_broker()
-        pnl     = broker.get_today_pnl()
-        balance = broker.get_funds().get("available_balance", 0)
-        log.info("[API] /api/pnl  pnl=%s  balance=₹%.2f", pnl, balance)
         return jsonify({
             "success":True,
-            "pnl":               pnl,
-            "available_balance": balance,
+            "pnl":               broker.get_today_pnl(),
+            "available_balance": broker.get_funds().get("available_balance",0),
         })
     except Exception as e:
         return jsonify({"success":False,"error":str(e)}),500
