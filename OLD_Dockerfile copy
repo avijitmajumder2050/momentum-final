@@ -4,15 +4,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ .
-# Create log directory before dropping privileges
-RUN mkdir -p /app/logs \
-    && useradd -m -u 1001 appuser \
-    && chown -R appuser:appuser /app
+RUN useradd -m -u 1001 appuser && chown -R appuser:appuser /app
 USER appuser
 EXPOSE 5000
-# Persist logs across container restarts:
-#   docker run -v momentum_logs:/app/logs ...
-VOLUME ["/app/logs"]
 HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
   CMD curl -f http://localhost:5000/health || exit 1
 CMD ["gunicorn","--workers","1","--threads","2","--bind","0.0.0.0:5000","--timeout","120","--access-logfile","-","--error-logfile","-","--log-level","info","app:app"]

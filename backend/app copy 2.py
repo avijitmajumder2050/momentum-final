@@ -32,8 +32,6 @@ from flask_cors import CORS
 
 from ssm_config import bootstrap
 bootstrap()
-from log_config import setup_logging
-setup_logging()               # stdout + local file + S3 sync thread
 
 from angel_broker     import get_broker
 from watchlist_s3     import (load_watchlist, add_symbol, delete_symbol,
@@ -45,7 +43,9 @@ from trade_executor   import execute_trade
 from breakout_monitor import get_monitor, start_monitor
 from trailing_engine  import get_engine, start_engine
 
-
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s [%(levelname)s] %(message)s",
+                    datefmt="%H:%M:%S")
 log = logging.getLogger(__name__)
 
 app = Flask(__name__)
