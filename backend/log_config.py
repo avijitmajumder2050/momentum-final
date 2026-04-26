@@ -52,7 +52,7 @@ import threading
 # ── tunables ─────────────────────────────────────────────────────────────────
 LOG_LEVEL     = os.getenv("LOG_LEVEL",      "INFO").upper()
 S3_BUCKET = "dhan-trading-data"
-S3_PREFIX     = os.getenv("LOG_S3_PREFIX",  "logs")
+S3_PREFIX     = os.getenv("LOG_S3_PREFIX",  "trading-bot/logs")
 SYNC_SECS     = int(os.getenv("LOG_SYNC_SECS",  "60"))   # 1 minutes
 LOCAL_LOG_DIR = os.getenv("LOG_LOCAL_DIR",  "/app/logs")
 S3_ENABLED    = os.getenv("LOG_S3_ENABLED", "true").lower() == "true"
