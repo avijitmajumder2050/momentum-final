@@ -56,7 +56,6 @@ class BreakoutMonitor:
         # 🔥 FIX: create broker only once
         from angel_broker import get_broker
         self.broker = get_broker()
-        log.info("[Monitor] BreakoutMonitor initialised  poll_interval=%ds", POLL_SECS)
 
     def start(self):
         if self.running: return
@@ -70,7 +69,6 @@ class BreakoutMonitor:
         log.info("[Monitor] Started (poll=%ds)", POLL_SECS)
 
     def stop(self):
-        log.info("[Monitor] stop() called")
         self.running = False
 
     def _loop(self):
@@ -83,12 +81,9 @@ class BreakoutMonitor:
             time.sleep(POLL_SECS)
 
     def _poll(self):
-        now_str = datetime.now().strftime("%H:%M:%S")
         if not _market_open():
-            log.debug("[Monitor] [%s] market closed — skipping poll", now_str)
             return
 
-        log.info("[Monitor] ── POLL %s ────────────────────────────────────────", now_str)
         from breakout_engine import run_breakout_engine
         from trade_executor  import execute_trade
 

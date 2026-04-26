@@ -26,12 +26,6 @@ TOKEN_S3_KEY = "angel/angel_tokens_dump_margin.csv"
 _login_lock = threading.Lock()
 _last_login_ts = 0
 LOGIN_COOLDOWN = 2   # safer than 1 sec
-def _div(label: str = "") -> None:
-    pad = max(0, 48 - len(label))
-    if label:
-        log.info("[Broker] ── %s %s", label, "─" * pad)
-    else:
-        log.info("[Broker] %s", "─" * 52)
 
 
 class AngelBroker:
@@ -69,8 +63,6 @@ class AngelBroker:
 
     # ── Token map ─────────────────────────────────────────────────────────────
     def reload_token_map(self) -> None:
-        _div("TOKEN MAP LOAD")
-        log.info("[TokenMap] bucket=%s  key=%s", self.bucket, TOKEN_S3_KEY)
         try:
             obj = self._s3.get_object(Bucket=self.bucket, Key=TOKEN_S3_KEY)
             df  = pd.read_csv(io.BytesIO(obj["Body"].read()))
@@ -126,8 +118,6 @@ class AngelBroker:
         return None
 
     def get_margin(self, symbol: str) -> float:
-        m = self.token_map.get(symbol.upper(), {}).get("margin", 1.0) 
-        log.debug("[TokenMap] margin(%s) = %.1f×", symbol, m)
         return self.token_map.get(symbol.upper(), {}).get("margin", 1.0)
 
     def get_product_type(self, symbol: str) -> str:
@@ -149,16 +139,12 @@ class AngelBroker:
                 log.warning("[Angel] Rate-limit sleep %.2fs", wait)
                 time.sleep(wait)
 
-            _div("SESSION LOGIN")
-            log.info("[Session] client_id=%s  api_key=%s****",
-                     self.client_id, self.api_key[:4] if self.api_key else "??")
             totp = pyotp.TOTP(self.totp_secret).now()
             obj  = SmartConnect(api_key=self.api_key)
 
             try:
                 d = obj.generateSession(self.client_id, self.password, totp)
             except Exception as e:
-                log.error("[Session] generateSession EXCEPTION: %s", e)
                 raise RuntimeError(f"[Angel] Login exception: {e}")   # ✅ FIX
 
             _last_login_ts = time.time()
@@ -344,9 +330,6 @@ class AngelBroker:
             "quantity":        str(qty),
             "scripconsent":    "yes",  # <--- Added this line
         }
-        _div("LIMIT ORDER PAYLOAD")
-        for k, v in params.items():
-            log.info("[Order]   %-20s = %s", k, v)
         log.info("[Order] %s %d×%s @ %.2f [%s]",
                  transaction.upper(), qty, trading_symbol, price, product_type)
         r = self._call(self._obj.placeOrder, params)
@@ -365,9 +348,7 @@ class AngelBroker:
         Returns "COMPLETE","PENDING","REJECTED","CANCELLED","UNKNOWN".
         """
         try:
-            log.debug("[OrderStatus] querying order_id=%s", order_id) 
             orders = self._call(self._obj.orderBook)
-            log.debug("[OrderStatus] orderBook raw=%s", orders)
             if orders.get("status") and orders.get("data"):
                 for o in orders["data"]:
                     if str(o.get("orderid","")) == str(order_id):
@@ -392,13 +373,7 @@ class AngelBroker:
             "producttype":product_type,"duration":"DAY",
             "price":"0","squareoff":"0","stoploss":"0","quantity":str(qty),"scripconsent":   "yes",
         }
-        _div("SELL MARKET ORDER PAYLOAD")
-        for k, v in params.items():
-            log.info("[SellOrder]   %-20s = %s", k, v)
         r = self._call(self._obj.placeOrder, params)
-        _div("SELL MARKET ORDER RESPONSE")
-        log.info("[SellOrder]   raw_response = %s", r)
-
         if r:
             oid = str(r)
             log.info("[Order] OK — order_id=%s", oid)
@@ -441,24 +416,16 @@ class AngelBroker:
             "stoplosstriggerprice": str(round(sl_price, 2)),
         }
 
-        _div("GTT CREATE PAYLOAD")
-        for k, v in params.items():
-            log.info("[GTT]   %-24s = %s", k, v)
-        log.info("[GTT]   risk_reward  = 1 : %.2f",
-                 (target_price - entry_price) / max(entry_price - sl_price, 0.01))
         try:
             r = self._call(self._obj.gttCreateRule, params)
-            _div("GTT CREATE RESPONSE")
-            log.info("[GTT]   raw_response = %s", r)
             if r:
                 gid = str(r)
                 log.info("[GTT] Created OCO id=%s", gid)
                 return {"status": "success", "gtt_id": gid}
-            log.warning("[GTT]   status = FAILED (empty response)")
+
             return {"status": "error", "message": "empty response"}
 
         except Exception as e:
-            log.error("[GTT]   EXCEPTION: %s", e)
             return {"status": "error", "message": str(e)}
 
     def modify_gtt_sl(
@@ -494,34 +461,22 @@ class AngelBroker:
             "stoplosstriggerprice": str(round(new_sl, 2)),
         }
 
-        _div("GTT MODIFY PAYLOAD")
-        for k, v in params.items():
-            log.info("[GTTModify]   %-24s = %s", k, v)
         try:
             r = self._call(self._obj.gttModifyRule, params)
-            _div("GTT MODIFY RESPONSE")
-            log.info("[GTTModify]   raw_response = %s", r)
             if r:
-                log.info("[GTTModify]   status = success  gtt_id = %s", str(r))
                 return {"status": "success", "gtt_id": str(r)}
 
-            log.warning("[GTTModify]   status = FAILED (empty response)")
             return {"status": "error", "message": "empty response"}
 
         except Exception as e:
-            log.error("[GTTModify]   EXCEPTION: %s", e)
             return {"status": "error", "message": str(e)}
 
     def cancel_gtt(self, gtt_id: str, trading_symbol: str, token: str) -> dict:
         """Cancel a GTT rule by ID."""
-        payload = {"id": str(gtt_id), "tradingsymbol": trading_symbol,
-                   "symboltoken": str(token)}
-        log.info("[GTTCancel] payload = %s", payload)
         try:
             r = self._call(self._obj.gttCancelRule,
                            {"id":str(gtt_id),"tradingsymbol":trading_symbol,
                             "symboltoken":str(token)})
-            log.info("[GTTCancel] raw_response = %s", r)
             if r.get("status"): return {"status":"success"}
             return {"status":"error","message":r.get("message","")}
         except Exception as e:
@@ -529,9 +484,7 @@ class AngelBroker:
 
     # ── Positions / funds ─────────────────────────────────────────────────────
     def get_positions(self) -> list:
-        log.debug("[Positions] fetching all positions")
         d = self._call(self._obj.position)
-        log.debug("[Positions] raw_response = %s", d)
         return (d.get("data") or []) if d.get("status") else []
 
     def get_funds(self) -> dict:
@@ -539,13 +492,10 @@ class AngelBroker:
 
         # ✅ return cache if valid
         if self._funds_cache and (now - self._funds_last < self._funds_ttl):
-            log.debug("[Funds] returning cached  balance=₹%.2f",
-                      self._funds_cache.get("available_balance", 0))
             return self._funds_cache
 
         try:
             d = self._call(self._obj.rmsLimit)
-            log.debug("[Funds] raw_response = %s", d)
 
             if d.get("status") and d.get("data"):
                 result = {
@@ -567,7 +517,6 @@ class AngelBroker:
     def get_today_pnl(self) -> dict:
         realized = unrealized = 0.0
         for pos in (self.get_positions() or []):
-            log.debug("[PnL] computing from positions")
             try:
                 realized   += float(pos.get("realisedprofitandloss",0) or 0)
                 qty = int(pos.get("netqty",0) or 0)

@@ -39,9 +39,7 @@ def run_breakout_engine(broker) -> List[Dict]:
     List of watchlist rows enriched with live `ltp` field (in-memory only).
     """
     data = load_watchlist()
-    log.info("[Breakout]   watchlist rows loaded = %d", len(data))
     if not data:
-        log.warning("[Breakout]   watchlist is EMPTY — nothing to scan")
         return []
 
     # ── Step 1: build instruments list for bulk LTP ───────────────────────────
@@ -49,13 +47,9 @@ def run_breakout_engine(broker) -> List[Dict]:
         {"symboltoken": r["Angel_Token"], "tradingsymbol": r["Symbol"]}
         for r in data if r.get("Angel_Token")
     ]
-    log.info("[Breakout]   fetching bulk LTP for %d instruments", len(instruments))
     live_data = broker.get_bulk_ltp(instruments) if instruments else {}
-    log.info("[Breakout]   LTP resolved for %d/%d instruments",
-             len(live_data), len(instruments))
 
     # ── Step 2: compute breakout + scoring ───────────────────────────────────
-    log.info("[Breakout] ── PER-SYMBOL ANALYSIS" )
     scored = []
     for row in data:
         sym   = row["Symbol"]
@@ -93,11 +87,6 @@ def run_breakout_engine(broker) -> List[Dict]:
         row["Action"]       = current_action
         row["Last_Updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        log.info(
-            "[Breakout]   %-20s  ltp=%-8.2f  entry=%-8.2f  sl=%-8.2f  "
-            "risk=%-5.2f%%  strength=%-7.4f%%  score=%-8.4f  breakout=%s  action=%s",
-            sym, ltp, entry, sl, risk_pct, strength, score, breakout, current_action,
-        )
         scored.append({
             "row":      row,
             "ltp":      ltp,
@@ -145,7 +134,6 @@ def get_top_candidate(broker) -> Dict | None:
     traded today.  Returns None if no eligible candidate.
     """
     from trade_s3 import already_traded_today
-    log.info("[Breakout] get_top_candidate called")
     enriched = run_breakout_engine(broker)
     candidates = [
         r for r in enriched
@@ -153,12 +141,7 @@ def get_top_candidate(broker) -> Dict | None:
         and r.get("Action")   != "AUTO_BUYED"
         and not already_traded_today()
     ]
-    log.info("[Breakout] get_top_candidate: eligible=%d", len(candidates))
     if not candidates:
-        log.info("[Breakout] get_top_candidate: no eligible candidates")
         return None
     # Already sorted by Rank in the CSV; use score for safety
-    top = min(candidates, key=lambda r: int(r.get("Rank") or 999))
-    log.info("[Breakout] get_top_candidate: selected %s  rank=%s  score=%s",
-             top["Symbol"], top.get("Rank"), top.get("score"))
     return min(candidates, key=lambda r: int(r.get("Rank") or 999))
