@@ -234,6 +234,10 @@ def wait_for_order_completion(broker, order_id: str) -> str:
 
     return "TIMEOUT"
 
+
+# ─────────────────────────────────────────────
+# POSITION FETCH (REAL ENTRY PRICE)
+# ─────────────────────────────────────────────
 def fetch_entry_from_position(
     broker,
     symbol: str,
@@ -242,52 +246,29 @@ def fetch_entry_from_position(
     delay: float = 1.5
 ) -> Tuple[float, int]:
 
-    for attempt in range(1, retries + 1):
+    for _ in range(retries):
 
-        res = broker.get_positions()   # <-- this is LIST
+        res = broker.get_positions()
 
-        log.info(
-            "[Executor] positions fetch attempt=%d total=%d",
-            attempt, len(res) if res else 0
-        )
+        if res and res.get("status") is True:
 
-        if not res:
-            time.sleep(delay)
-            continue
+            for p in res.get("data", []):
 
-        for p in res:
-            try:
-                sym = p.get("tradingsymbol")
-                tkn = str(p.get("symboltoken"))
-                qty = int(p.get("netqty", 0))
-
-                # 🔍 debug visibility
-                log.debug(
-                    "[Executor] checking → sym=%s token=%s qty=%d",
-                    sym, tkn, qty
-                )
-
-                # ✅ Match + only ACTIVE BUY position
                 if (
-                    (tkn == str(token) or sym == symbol)
-                    and qty > 0
+                    p.get("symboltoken") == str(token)
+                    or p.get("tradingsymbol") == symbol
                 ):
+
+                    qty = int(p.get("netqty", 0))
+                    if qty == 0:
+                        continue
+
                     entry = float(
-                        p.get("buyavgprice") or
-                        p.get("avgnetprice") or 0
+                        p.get("buyavgprice") or p.get("avgnetprice")
                     )
 
-                    if entry > 0:
-                        log.info(
-                            "[Executor] MATCH FOUND → %s qty=%d entry=%.2f",
-                            sym, qty, entry
-                        )
-                        return entry, qty
+                    return entry, qty
 
-            except Exception as e:
-                log.warning("[Executor] position parse error: %s", e)
-
-        log.warning("[Executor] no match yet → retrying...")
         time.sleep(delay)
 
     raise Exception(f"Position not found for {symbol}")
