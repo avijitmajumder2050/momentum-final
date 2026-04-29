@@ -20,7 +20,6 @@ from typing import Tuple
 from position_sizing import calculate
 from trade_s3 import open_trade, already_traded_today
 from watchlist_s3 import mark_auto_buyed
-import math
 
 log = logging.getLogger(__name__)
 
@@ -39,15 +38,6 @@ def _divider(label: str = "") -> None:
     else:
         log.info("[Executor] %s", "─" * 52)
 # MAIN EXECUTION
-
-
-def round_to_tick_up(price: float, tick: float = 0.05) -> float:
-    """Always round UP to nearest tick (for BUY orders)."""
-    return round(math.ceil(price / tick) * tick, 2)
-
-def round_to_tick_down(price: float, tick: float = 0.05) -> float:
-    """Always round DOWN to nearest tick (for SELL orders)."""
-    return round(math.floor(price / tick) * tick, 2)
 # ─────────────────────────────────────────────
 def execute_trade(
     broker,
@@ -118,9 +108,7 @@ def execute_trade(
     buffer = max(1, round(entry_price * 0.001, 2))   # dynamic buffer
 
     # 🔥 KEY LOGIC
-    
-    raw_limit = max(entry_price, ltp + buffer)
-    limit_price = round_to_tick_up(raw_limit)   # 🔥 always aggressive
+    limit_price = max(entry_price, ltp + buffer)
 
     log.info("[Executor]   LTP            = %.2f", ltp)
     log.info("[Executor]   entry_price    = %.2f", entry_price)
