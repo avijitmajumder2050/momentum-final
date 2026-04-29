@@ -433,12 +433,12 @@ class AngelBroker:
             "gttType": "OCO",
 
             # Target leg
-            "price": str(round(target_price - 2, 2)),
+            "price": str(round(target_price, 2)),
             "triggerprice": str(round(target_price, 2)),
 
             # SL leg (correct fields)
             "stoplossprice": str(round(sl_price, 2)),
-            "stoplosstriggerprice": str(round(sl_price + 2, 2)),
+            "stoplosstriggerprice": str(round(sl_price, 2)),
         }
 
         _div("GTT CREATE PAYLOAD")
@@ -486,12 +486,12 @@ class AngelBroker:
             "gttType": "OCO",
 
             # keep target unchanged
-            "price": str(round(target_price - 2, 2)),
+            "price": str(round(target_price, 2)),
             "triggerprice": str(round(target_price, 2)),
 
             # updated SL
             "stoplossprice": str(round(new_sl, 2)),
-            "stoplosstriggerprice": str(round(new_sl + 2, 2)),
+            "stoplosstriggerprice": str(round(new_sl, 2)),
         }
 
         _div("GTT MODIFY PAYLOAD")
