@@ -71,7 +71,16 @@ def process_trade(broker, trade: dict) -> None:
         log.error("[Trail] Parse error %s: %s", symbol, e)
         return
 
-    
+    # ── TIME EXIT CHECK ───────────────────────────────────────
+    try:
+        entry_time = datetime.strptime(trade["Entry_Time"], "%Y-%m-%d %H:%M:%S")
+        if datetime.now() >= entry_time + timedelta(minutes=TIME_EXIT_MINS):
+            log.info("[Trail] TIME EXIT %s", symbol)
+            if gtt_id: broker.cancel_gtt(gtt_id, symbol, token)
+            broker.place_sell_market_order(symbol, token, qty)
+            close_trade(order_id, "TIME_EXIT")
+            return
+    except Exception: pass
 
     # ── TARGET CHECK ─────────────────────────────────────────
     if ltp >= target:
