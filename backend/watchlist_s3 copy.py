@@ -9,8 +9,7 @@ Key    : angel/watchlist.csv
 Schema
 ------
 Symbol | Angel_Token | Entry_Price | SL_Price | Target_Price |
-Breakout | Risk_Percent | Rank | Action | Breakout_Date | Last_Updated
-
+Breakout | Risk_Percent | Rank | Action | Last_Updated
 
 Rules
 -----
@@ -32,7 +31,7 @@ S3_KEY    = "angel/watchlist.csv"
 
 HEADERS = [
     "Symbol","Angel_Token","Entry_Price","SL_Price","Target_Price",
-    "Breakout","Risk_Percent","Rank","Action","Breakout_Date","Last_Updated",
+    "Breakout","Risk_Percent","Rank","Action","Last_Updated",
 ]
 
 
@@ -84,7 +83,6 @@ def add_symbol(
         "Risk_Percent": str(risk_pct),
         "Rank":         "0",
         "Action":       "WATCH",
-        "Breakout_Date": "",
         "Last_Updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
     data = _read()
@@ -97,32 +95,6 @@ def add_symbol(
     return row
 
 
-# ── EDIT ──────────────────────────────────────────────────────────────────────
-def edit_symbol(
-    symbol:       str,
-    entry_price:  float,
-    sl_price:     float,
-    target_price: float,
-) -> Optional[Dict]:
-    """
-    Update only price fields.  Preserves Breakout, Rank, Action, Breakout_Date.
-    Returns updated row or None if symbol not found.
-    """
-    risk_pct = round(abs(entry_price - sl_price) / entry_price * 100, 2) if entry_price else 0
-    data = _read()
-    for row in data:
-        if row["Symbol"].upper() == symbol.upper():
-            row["Entry_Price"]  = str(entry_price)
-            row["SL_Price"]     = str(sl_price)
-            row["Target_Price"] = str(target_price)
-            row["Risk_Percent"] = str(risk_pct)
-            row["Last_Updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            _write(data)
-            log.info("[Watchlist] Edited %s entry=%.2f sl=%.2f tgt=%.2f risk=%.2f%%",
-                     symbol, entry_price, sl_price, target_price, risk_pct)
-            return row
-    log.warning("[Watchlist] edit_symbol: %s not found", symbol)
-    return None
 def delete_symbol(symbol: str) -> bool:
     data = _read()
     before = len(data)
@@ -136,14 +108,6 @@ def update_row(symbol: str, fields: dict) -> bool:
     data = _read()
     for row in data:
         if row["Symbol"].upper() == symbol.upper():
-	    # Auto-stamp Breakout_Date when Breakout first becomes YES
-            if fields.get("Breakout") == "YES" and not row.get("Breakout_Date"):
-                fields["Breakout_Date"] = date.today().strftime("%Y-%m-%d")
-                log.info("[Watchlist] Breakout_Date stamped for %s → %s",
-                         symbol, fields["Breakout_Date"])
-            # Clear Breakout_Date when breakout resets to NO
-            if fields.get("Breakout") == "NO":
-                fields["Breakout_Date"] = ""
             row.update(fields)
             row["Last_Updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             _write(data); return True
@@ -160,37 +124,3 @@ def get_symbol(symbol: str) -> Optional[Dict]:
         if r["Symbol"].upper() == symbol.upper():
             return r
     return None
- ── NEXT-DAY CLEANUP ──────────────────────────────────────────────────────────
-def cleanup_old_breakouts() -> List[str]:
-    """
-    Delete rows where Breakout=YES AND Breakout_Date < today (IST).
-    These are symbols that broke out yesterday but were never traded.
-    Called by POST /api/watchlist/cleanup each morning.
-    Returns list of deleted symbols.
-    """
-    today   = date.today().strftime("%Y-%m-%d")
-    data    = _read()
-    deleted = []
-    kept    = []
-
-    for row in data:
-        brk_date = row.get("Breakout_Date", "").strip()
-        stale    = (
-            row.get("Breakout") == "YES"
-            and brk_date
-            and brk_date < today
-        )
-        if stale:
-            deleted.append(row["Symbol"])
-            log.info("[Watchlist] Cleanup: removing stale %s (brk_date=%s)",
-                     row["Symbol"], brk_date)
-        else:
-            kept.append(row)
-
-    if deleted:
-        _write(kept)
-        log.info("[Watchlist] Cleanup done — removed %d: %s", len(deleted), deleted)
-    else:
-        log.info("[Watchlist] Cleanup: nothing stale today")
-
-    return deleted

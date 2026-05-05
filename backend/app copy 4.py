@@ -15,10 +15,8 @@ Routes
 GET  /health
 GET  /api/watchlist             all watchlist rows + live LTP
 POST /api/watchlist             add symbol
-PUT  /api/watchlist/<symbol>         EDIT entry/sl/target     ← NEW
 DEL  /api/watchlist/<symbol>    delete symbol
 POST /api/watchlist/scan        trigger manual breakout scan
-POST /api/watchlist/cleanup          delete stale next-day breakouts ← NEW
 GET  /api/trades/active         active trades + live LTP + P&L
 GET  /api/trades/all            all trades (active + closed)
 POST /api/trade/buy             manual trade execution
@@ -39,9 +37,9 @@ setup_logging()               # stdout + local file + S3 sync thread
 
 from angel_broker     import get_broker
 from watchlist_s3     import (load_watchlist, add_symbol, delete_symbol,
-                               get_symbol, update_row,edit_symbol,cleanup_old_breakouts)
+                               get_symbol, update_row)
 from trade_s3         import (load_trades, load_active, close_trade,
-                               update_trade, already_traded_today,get_trade)
+                               update_trade, already_traded_today)
 from breakout_engine  import run_breakout_engine
 from trade_executor   import execute_trade
 from breakout_monitor import get_monitor, start_monitor
@@ -136,38 +134,13 @@ def api_add_symbol():
         "success": False,
         "error": f"Token not found for {symbol}. Check token CSV."
     }), 400
-        log.warning("[add] Token not found for %s in CSV map", symbol)
+        
 
     row = add_symbol(symbol, angel_token, entry_price, sl_price, target_price)
     log.info("[API] /api/watchlist  ADDED %s", row)
     return jsonify({"success":True,"row":row})
 
-# ── Watchlist — EDIT  (PUT /api/watchlist/<symbol>) ───────────────────────────
-@app.put("/api/watchlist/<symbol>")
-def api_edit_symbol(symbol: str):
-    """
-    Update only price fields (entry / SL / target).
-    Token, Breakout, Rank, Action, Breakout_Date are preserved.
-    Body: {entry_price, sl_price, target_price}
-    """
-    b            = request.json or {}
-    entry_price  = float(b.get("entry_price",  0))
-    sl_price     = float(b.get("sl_price",     0))
-    target_price = float(b.get("target_price", 0))
-    symbol       = symbol.upper().strip()
 
-    if not entry_price or not sl_price or not target_price:
-        return jsonify({"success": False,
-                        "error": "entry_price, sl_price, target_price required"}), 400
-    if sl_price >= entry_price:
-        return jsonify({"success": False, "error": "SL must be below entry"}), 400
-    if target_price <= entry_price:
-        return jsonify({"success": False, "error": "Target must be above entry"}), 400
-
-    row = edit_symbol(symbol, entry_price, sl_price, target_price)
-    if not row:
-        return jsonify({"success": False,
-                        "error": f"{symbol} not found in watchlist"}), 404
 @app.delete("/api/watchlist/<symbol>")
 def api_delete_symbol(symbol: str):
     symbol = symbol.upper()
@@ -191,22 +164,6 @@ def api_scan():
         return jsonify({"success":False,"error":str(e)}),500
 
 
-# ── Watchlist — CLEANUP ────────────────────────────────────────────────────────
-@app.post("/api/watchlist/cleanup")
-def api_cleanup():
-    """
-    Delete watchlist rows where Breakout=YES and Breakout_Date < today.
-    Called by the frontend once per day (on page load) to auto-purge
-    yesterday's breakout symbols that were never traded.
-    """
-    try:
-        deleted = cleanup_old_breakouts()
-        log.info("[API] cleanup → deleted %s", deleted)
-        return jsonify({"success": True, "deleted": deleted, "count": len(deleted)})
-    except Exception as e:
-        log.error("[API] cleanup error: %s", e, exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
-	
 # ── Active trades with live LTP + P&L ────────────────────────────────────────
 @app.get("/api/trades/active")
 def api_active_trades():
@@ -295,7 +252,7 @@ def api_manual_exit(order_id: str):
     2. Place market SELL.
     3. Mark trade CLOSED with MANUAL_CANCEL.
     """
-     log.info("[API] POST /api/trade/exit/%s", order_id)
+    log.info("[API] POST /api/trade/exit/%s", order_id)
     from trade_s3 import get_trade
     trade = get_trade(order_id)
     if not trade:
@@ -355,11 +312,13 @@ def api_pnl():
     log.info("[API] GET /api/pnl")
     try:
         broker = get_broker()
-	
+        pnl     = broker.get_today_pnl()
+        balance = broker.get_funds().get("available_balance", 0)
+        log.info("[API] /api/pnl  pnl=%s  balance=₹%.2f", pnl, balance)
         return jsonify({
             "success":True,
-            "pnl":               broker.get_today_pnl(),
-            "available_balance": broker.get_funds().get("available_balance",0),
+            "pnl":               pnl,
+            "available_balance": balance,
         })
     except Exception as e:
         return jsonify({"success":False,"error":str(e)}),500
