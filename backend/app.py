@@ -295,7 +295,7 @@ def api_manual_exit(order_id: str):
     2. Place market SELL.
     3. Mark trade CLOSED with MANUAL_CANCEL.
     """
-     log.info("[API] POST /api/trade/exit/%s", order_id)
+    log.info("[API] POST /api/trade/exit/%s", order_id)
     from trade_s3 import get_trade
     trade = get_trade(order_id)
     if not trade:
