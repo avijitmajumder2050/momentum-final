@@ -26,7 +26,6 @@ HEADERS = [
     "Order_ID","Symbol","Angel_Token","Entry_Price","SL_Price","Target_Price",
     "Qty","Status","Entry_Time","Exit_Time","Exit_Reason",
     "GTT_ID","Last_SL","Trailing_Active","SubAction",
-    "Mode",   # 🔥 ADD THIS
 ]
 
 
@@ -92,7 +91,6 @@ def open_trade(
     target_price:  float,
     qty:           int,
     gtt_id:        str = "",
-    mode: str = "AUTO",   # 🔥 ADD
 ) -> Dict:
 
     row = {
@@ -111,7 +109,6 @@ def open_trade(
         "Last_SL":       str(sl_price),
         "Trailing_Active":"False",
         "SubAction":     "ENTRY",
-        "Mode": mode,   # 🔥 ADD
     }
 
     data = _read()
@@ -189,14 +186,8 @@ def already_traded_today() -> bool:
     today = datetime.now().strftime("%Y-%m-%d")
 
     for r in _read():
-        if (
-            r.get("Mode") == "AUTO"
-            and r.get("Entry_Time", "").startswith(today)
+        entry_time = r.get("Entry_Time", "")
+        if entry_time.startswith(today):
+            return True
 
-        ):
-             log.info("[Trades] AUTO trade already exists today → BLOCK")
-             return True
-
-
-    log.info("[Trades] No AUTO trade today → ALLOW")
     return False

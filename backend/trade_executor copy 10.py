@@ -210,7 +210,6 @@ def execute_trade(
         target_price=target_price,
         qty=real_qty,
         gtt_id=gtt_id,
-        mode="AUTO" if is_auto else "MANUAL", 
     )
     log.info("[Executor]   trade_row = %s", trade)
     
