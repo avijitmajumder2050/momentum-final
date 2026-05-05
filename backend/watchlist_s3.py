@@ -22,6 +22,7 @@ Rules
 """
 import io, csv, os, logging
 from datetime import datetime
+from datetime import date
 from typing import List, Dict, Optional
 import boto3
 from botocore.exceptions import ClientError
