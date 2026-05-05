@@ -168,6 +168,8 @@ def api_edit_symbol(symbol: str):
     if not row:
         return jsonify({"success": False,
                         "error": f"{symbol} not found in watchlist"}), 404
+    return jsonify({"success": True, "row": row})
+    
 @app.delete("/api/watchlist/<symbol>")
 def api_delete_symbol(symbol: str):
     symbol = symbol.upper()
