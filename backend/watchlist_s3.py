@@ -160,7 +160,7 @@ def get_symbol(symbol: str) -> Optional[Dict]:
         if r["Symbol"].upper() == symbol.upper():
             return r
     return None
- ── NEXT-DAY CLEANUP ──────────────────────────────────────────────────────────
+
 def cleanup_old_breakouts() -> List[str]:
     """
     Delete rows where Breakout=YES AND Breakout_Date < today (IST).
