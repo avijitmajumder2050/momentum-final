@@ -260,9 +260,8 @@ def api_all_trades():
 @app.post("/api/trade/buy")
 def api_manual_buy():
     """
-    Body: {symbol, entry_price, sl_price, target_price, qty?}
+    Body: {symbol, entry_price, sl_price, target_price}
     Uses token from S3 map. Sizes by live balance.
-    qty is optional — if provided and > 0 it overrides auto position-sizing.
     Writes to CSV ONLY if order is COMPLETE.
     """
     b = request.json or {}
@@ -270,11 +269,9 @@ def api_manual_buy():
     entry_price  = float(b.get("entry_price",  0))
     sl_price     = float(b.get("sl_price",     0))
     target_price = float(b.get("target_price", 0))
-    override_qty = int(b.get("qty",            0))   # 0 = auto-size
 
-    log.info("[API] POST /api/trade/buy  symbol=%s  entry=%.2f  sl=%.2f  tgt=%.2f  qty=%s",
-             symbol, entry_price, sl_price, target_price,
-             override_qty if override_qty > 0 else "auto")
+    log.info("[API] POST /api/trade/buy  symbol=%s  entry=%.2f  sl=%.2f  tgt=%.2f",
+             symbol, entry_price, sl_price, target_price)
     if not symbol:
         return jsonify({"success":False,"error":"symbol required"}),400
 
@@ -284,7 +281,7 @@ def api_manual_buy():
         return jsonify({"success":False,"error":f"Token not found for {symbol}"}),400
 
     result = execute_trade(broker, symbol, angel_token,
-                           entry_price, sl_price, target_price, is_auto=False,  override_qty=override_qty)
+                           entry_price, sl_price, target_price, is_auto=False)
     log.info("[API] /api/trade/buy  result = %s", result)
     if result["success"]:
         return jsonify(result)
@@ -299,20 +296,8 @@ def api_manual_exit(order_id: str):
     1. Cancel both GTT legs.
     2. Place market SELL.
     3. Mark trade CLOSED with MANUAL_CANCEL.
-    Body: {qty?: int}
-      qty absent or 0  → FULL EXIT
-        1. Cancel GTT (both legs).
-        2. Place market SELL for all qty.
-        3. Mark trade CLOSED (MANUAL_CANCEL).
-
-      qty > 0 and < trade qty  → PARTIAL EXIT
-        1. Place market SELL for the requested qty.
-        2. Modify GTT to remaining qty (keeps SL + target active).
-        3. Update trade Qty to remaining.
-
-      qty >= trade qty  → treated as full exit.
     """
-    log.info("[API] POST /api/trade/exit/%s  body=%s", order_id, request.json)
+    log.info("[API] POST /api/trade/exit/%s",order_id)
     from trade_s3 import get_trade
     trade = get_trade(order_id)
     if not trade:
@@ -325,80 +310,22 @@ def api_manual_exit(order_id: str):
     broker = get_broker()
     sym    = trade["Symbol"]
     token  = trade["Angel_Token"]
-    gtt_id   = trade.get("GTT_ID") or trade.get("GTT_SL_ID") or ""
-    total_qty = int(trade["Qty"])
-    sl_price  = float(trade["SL_Price"])
-    tgt_price = float(trade["Target_Price"])
+    qty    = int(trade["Qty"])
 
-    # ── Determine exit qty ────────────────────────────────────────────────────
-    requested = int((request.json or {}).get("qty", 0))
-    is_partial = 0 < requested < total_qty
-    exit_qty   = requested if is_partial else total_qty
+    log.info("[API] /api/trade/exit/%s  symbol=%s  token=%s  qty=%d",
+             order_id, sym, token, qty)
+    if trade.get("GTT_Target_ID"):
+        log.info("[API]   cancelling GTT target id=%s", trade["GTT_Target_ID"])
+        broker.cancel_gtt(trade["GTT_Target_ID"], sym, token)
+    if trade.get("GTT_SL_ID"):
+        log.info("[API]   cancelling GTT SL id=%s", trade["GTT_SL_ID"])
+        broker.cancel_gtt(trade["GTT_SL_ID"], sym, token)
 
-    log.info("[API] exit/%s  sym=%s  total_qty=%d  exit_qty=%d  partial=%s  gtt=%s",
-             order_id, sym, total_qty, exit_qty, is_partial, gtt_id)
+    sell = broker.place_sell_market_order(sym, token, qty)
+    close_trade(order_id, "MANUAL_CANCEL")
 
-    # ── FULL EXIT ─────────────────────────────────────────────────────────────
-    if not is_partial:
-        # 1. Cancel GTT (if any)
-        if gtt_id:
-            log.info("[API] full exit — cancelling GTT id=%s", gtt_id)
-            res = broker.cancel_gtt(gtt_id, sym, token)
-            log.info("[API] GTT cancel response: %s", res)
-        else:
-            log.info("[API] full exit — no GTT to cancel")
-
-        # 2. Market SELL all qty
-        sell = broker.place_sell_market_order(sym, token, total_qty)
-        log.info("[API] full exit SELL response: %s", sell)
-
-        # 3. Close trade record
-        close_trade(order_id, "MANUAL_CANCEL")
-        log.info("[API] trade %s CLOSED (full)", order_id)
-
-        return jsonify({
-            "success":    True,
-            "exit_type":  "full",
-            "exit_qty":   total_qty,
-            "sell_order": sell,
-        })
-
-    # ── PARTIAL EXIT ──────────────────────────────────────────────────────────
-    remaining_qty = total_qty - exit_qty
-
-    # 1. Market SELL partial qty
-    sell = broker.place_sell_market_order(sym, token, exit_qty)
-    log.info("[API] partial exit SELL %d × %s  response: %s", exit_qty, sym, sell)
-
-    # 2. Modify GTT qty to remaining
-    if gtt_id:
-        log.info("[API] modifying GTT id=%s  old_qty=%d → new_qty=%d",
-                 gtt_id, total_qty, remaining_qty)
-        gtt_res = broker.modify_gtt_qty(
-            gtt_id, sym, token, remaining_qty, sl_price, tgt_price
-        )
-        log.info("[API] GTT modify qty response: %s", gtt_res)
-    else:
-        log.warning("[API] partial exit — no GTT_ID, skipping GTT modify")
-        gtt_res = {"status": "skipped", "message": "no GTT_ID"}
-
-    # 3. Update trade Qty to remaining
-    update_trade(order_id, {
-        "Qty":       str(remaining_qty),
-        "SubAction": f"PARTIAL_EXIT_{exit_qty}",
-    })
-    log.info("[API] trade %s qty updated → %d remaining", order_id, remaining_qty)
-
-    return jsonify({
-        "success":       True,
-        "exit_type":     "partial",
-        "exit_qty":      exit_qty,
-        "remaining_qty": remaining_qty,
-        "sell_order":    sell,
-        "gtt_modify":    gtt_res,
-    })
-
-    
+    log.info("[API] /api/trade/exit/%s  DONE  sell_order=%s", order_id, sell)
+    return jsonify({"success":True,"sell_order":sell})
 
 
 # ── Auto-buy control ──────────────────────────────────────────────────────────

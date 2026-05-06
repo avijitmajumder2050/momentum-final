@@ -56,8 +56,7 @@ def execute_trade(
     entry_price: float,
     sl_price: float,
     target_price: float,
-    is_auto: bool = True,
-    override_qty:  int  = 0,
+    is_auto: bool = True, 
 ) -> dict:
 
     
@@ -100,17 +99,13 @@ def execute_trade(
 
     # ── Position sizing ───────────────────────────────────────────────────
     _divider("POSITION SIZING")
-    if override_qty and override_qty > 0:
-        qty = override_qty
-        log.info("[Executor]   override_qty=%d  (skipping auto-size)", qty)
-    else:
-        sizing = calculate(balance, entry_price, sl_price, margin)
-        if not sizing["success"]:
-            log.warning("[Executor]   SIZING FAILED — %s", sizing["message"])
-            return {"success": False, "error": sizing["message"]}
+    sizing = calculate(balance, entry_price, sl_price, margin)
+    if not sizing["success"]:
+        log.warning("[Executor]   SIZING FAILED — %s", sizing["message"])
+        return {"success": False, "error": sizing["message"]}
 
-        qty = sizing["quantity"]
-        log.info("[Executor] %s qty=%d risk=₹%.2f leverage=%.1f×",
+    qty = sizing["quantity"]
+    log.info("[Executor] %s qty=%d risk=₹%.2f leverage=%.1f×",
              symbol, qty, sizing["risk_per_trade"], margin)
     
     _divider("LIMIT EXECUTION LOGIC")

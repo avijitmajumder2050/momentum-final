@@ -527,54 +527,6 @@ class AngelBroker:
         except Exception as e:
             return {"status":"error","message":str(e)}
 
-    def modify_gtt_qty(
-        self,
-        gtt_id:         str,
-        trading_symbol: str,
-        token:          str,
-        new_qty:        int,
-        sl_price:       float,
-        target_price:   float,
-        exchange:       str = "NSE",
-    ) -> dict:
-        """
-        Modify GTT quantity for a partial exit.
-        Keeps SL and target unchanged; only updates qty.
-        Used when manually exiting a partial position — remaining qty
-        stays protected by the same OCO GTT at the new qty.
-        """
-        product_type = self.get_product_type(trading_symbol)
-        params = {
-            "id":                   str(gtt_id),
-            "tradingsymbol":        trading_symbol,
-            "symboltoken":          str(token),
-            "exchange":             exchange,
-            "producttype":          product_type,
-            "transactiontype":      "SELL",
-            "qty":                  str(new_qty),
-            "gttType":              "OCO",
-            "price":                str(round(target_price - 2, 2)),
-            "triggerprice":         str(round(target_price, 2)),
-            "stoplossprice":        str(round(sl_price, 2)),
-            "stoplosstriggerprice": str(round(sl_price + 2, 2)),
-        }
-
-        _div("GTT MODIFY QTY PAYLOAD")
-        for k, v in params.items():
-            log.info("[GTTModifyQty]   %-24s = %s", k, v)
-        try:
-            r = self._call(self._obj.gttModifyRule, params)
-            _div("GTT MODIFY QTY RESPONSE")
-            log.info("[GTTModifyQty]   raw_response = %s", r)
-            if r:
-                log.info("[GTTModifyQty]   success  gtt_id=%s  new_qty=%d", str(r), new_qty)
-                return {"status": "success", "gtt_id": str(r)}
-            log.warning("[GTTModifyQty]   FAILED (empty response)")
-            return {"status": "error", "message": "empty response"}
-        except Exception as e:
-            log.error("[GTTModifyQty]   EXCEPTION: %s", e)
-            return {"status": "error", "message": str(e)}
-
     # ── Positions / funds ─────────────────────────────────────────────────────
     def get_positions(self) -> list:
         log.debug("[Positions] fetching all positions")
