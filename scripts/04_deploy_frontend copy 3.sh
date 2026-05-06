@@ -42,10 +42,11 @@ sed -i 's|const API = ".*";|const API = "";|g' "$HTML_FILE"
 # Upload to S3
 # ---------------------------------------------------------
 echo "[S3] Uploading to $S3_BUCKET..."
-aws s3 cp "$HTML_FILE" "s3://$S3_BUCKET/index.html" \
+aws s3 sync "$BUILD/" "s3://$S3_BUCKET/" \
   --region "$AWS_REGION" \
-  --cache-control "no-cache, no-store, must-revalidate" \
-  --content-type "text/html"
+  --cache-control "max-age=60" \
+  --delete
+
 # ---------------------------------------------------------
 # CloudFront Invalidation
 # ---------------------------------------------------------

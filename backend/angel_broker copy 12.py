@@ -384,9 +384,7 @@ class AngelBroker:
         exchange:       str = "NSE",
     ) -> dict:
         """Market SELL for manual / time exit."""
-        #product_type = self.get_product_type(trading_symbol)
-        # ✅ FIX: force DELIVERY for exit
-        product_type = "DELIVERY"
+        product_type = self.get_product_type(trading_symbol)
         params = {
             "variety":"NORMAL","tradingsymbol":trading_symbol,
             "symboltoken":str(token),"transactiontype":"SELL",
