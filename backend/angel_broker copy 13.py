@@ -16,7 +16,6 @@ from typing import Optional
 import pyotp, boto3
 import pandas as pd
 from SmartApi import SmartConnect
-from decimal import Decimal
 
 
 log          = logging.getLogger(__name__)
@@ -339,7 +338,7 @@ class AngelBroker:
             "ordertype":       "LIMIT",
             "producttype":     product_type,
             "duration":        "DAY",
-            "price":           safe_price_str(price),
+            "price":           str(round(price, 2)),
             "squareoff":       "0",
             "stoploss":        "0",
             "quantity":        str(qty),
@@ -350,11 +349,6 @@ class AngelBroker:
             log.info("[Order]   %-20s = %s", k, v)
         log.info("[Order] %s %d×%s @ %.2f [%s]",
                  transaction.upper(), qty, trading_symbol, price, product_type)
-        log.info(
-    "[Order] raw_price=%r safe_price=%s",
-    price,
-    safe_price_str(price)
-)
         r = self._call(self._obj.placeOrder, params)
         # SmartAPI returns orderid string directly
         if r:
@@ -651,14 +645,3 @@ def get_broker() -> AngelBroker:
 def reset_broker() -> None:
     global _broker
     with _lock: _broker = None
-
-def safe_price_str(price: float) -> str:
-    """
-    Convert float safely for Angel API.
-    Prevents float precision issues.
-    """
-
-    return format(
-        Decimal(str(price)).quantize(Decimal("0.05")),
-        ".2f"
-    )
