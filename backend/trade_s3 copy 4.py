@@ -181,46 +181,6 @@ def get_trade(order_id: str) -> Optional[Dict]:
     return None
 
 
-def get_active_trade_by_symbol(symbol: str) -> Optional[Dict]:
-    """Return the first ACTIVE trade row for this symbol, or None."""
-    for r in _read():
-        if r["Symbol"].upper() == symbol.upper() and r["Status"] == "ACTIVE":
-            log.info("[Trades] found active trade for %s  order_id=%s  qty=%s",
-                     symbol, r["Order_ID"], r["Qty"])
-            return r
-    return None
-
-
-def add_qty_to_trade(
-    order_id:      str,
-    added_qty:     int,
-    new_avg_entry: float,
-    new_gtt_id:    str = "",
-) -> Optional[Dict]:
-    """
-    Pyramid: update existing row in-place.
-      Qty          += added_qty
-      Entry_Price   = new weighted average
-      GTT_ID        = new_gtt_id  (if provided)
-      SubAction     = ADD_QTY+N
-    No new row is written.
-    """
-    data = _read()
-    for row in data:
-        if row["Order_ID"] == str(order_id) and row["Status"] == "ACTIVE":
-            old_qty   = int(row["Qty"])
-            total_qty = old_qty + added_qty
-            row["Qty"]         = str(total_qty)
-            row["Entry_Price"] = str(round(new_avg_entry, 2))
-            row["SubAction"]   = f"ADD_QTY+{added_qty}"
-            if new_gtt_id:
-                row["GTT_ID"]  = new_gtt_id
-            _write(data)
-            log.info("[Trades] add_qty  order_id=%s  old=%d  added=%d  total=%d  avg=%.2f",
-                     order_id, old_qty, added_qty, total_qty, new_avg_entry)
-            return row
-    log.warning("[Trades] add_qty_to_trade: %s not found or CLOSED", order_id)
-    return None
 def already_traded_today() -> bool:
     """
     Returns True if ANY trade (ACTIVE or CLOSED) was opened today.
