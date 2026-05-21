@@ -480,11 +480,6 @@ class AngelBroker:
         exchange: str = "NSE",
     ) -> dict:
 
-       
-        # ── TYPE NORMALIZATION ─────────────────────
-        qty = int(float(qty))
-        new_sl = float(new_sl)
-        target_price = float(target_price)
         product_type = self.get_product_type(trading_symbol)
 
         params = {
