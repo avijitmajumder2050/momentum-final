@@ -15,11 +15,10 @@ Orchestrates the full trade entry flow:
 
 import time
 import logging
-
 from typing import Tuple
 
 from position_sizing import calculate
-from trade_s3 import open_trade, already_traded_today, get_active_trade_by_symbol, add_qty_to_trade, get_remaining_qty
+from trade_s3 import open_trade, already_traded_today, get_active_trade_by_symbol, add_qty_to_trade
 from watchlist_s3 import mark_auto_buyed
 import math
 
@@ -189,19 +188,33 @@ def execute_trade(
     # ── PYRAMID: existing active trade for same symbol? ──────────────────────
     existing = get_active_trade_by_symbol(symbol)
     if existing:
-        old_qty     = get_remaining_qty(existing)
+        old_qty     = int(existing["Qty"])
         added_qty   = max(qty, real_qty - old_qty) if real_qty > old_qty else qty
         total_qty   = old_qty + added_qty
-        
+        existing_sl = float(existing.get("Last_SL") or existing["SL_Price"])
+        existing_tgt= float(existing["Target_Price"])
+        gtt_id      = existing.get("GTT_ID", "")
 
         log.info("[Executor]   PYRAMID  old_qty=%d  added=%d  total=%d  new_avg=%.2f",
                  old_qty, added_qty, total_qty, real_entry)
 
-        
+        if gtt_id:
+            _divider("GTT MODIFY QTY (PYRAMID)")
+            gtt_res = broker.modify_gtt_qty(
+                gtt_id=gtt_id, trading_symbol=symbol, token=angel_token,
+                new_qty=total_qty, sl_price=existing_sl, target_price=existing_tgt,
+            )
+            log.info("[Executor]   modify_gtt_qty = %s", gtt_res)
+            new_gtt_id = gtt_res.get("gtt_id", gtt_id) if gtt_res.get("status") == "success" else gtt_id
+        else:
+            log.warning("[Executor]   no GTT_ID on existing trade — placing fresh GTT")
+            gtt_res   = broker.place_gtt_order(symbol, angel_token, total_qty,
+                                                real_entry, existing_sl, existing_tgt)
+            new_gtt_id = gtt_res.get("gtt_id", "") if gtt_res.get("status") == "success" else ""
 
-        # Update qty in S3 (no GTT to modify)
-        updated = add_qty_to_trade(existing["Order_ID"], added_qty, real_entry)
-        log.info("[Executor]   pyramid complete  existing_order=%s", existing["Order_ID"])
+        updated = add_qty_to_trade(existing["Order_ID"], added_qty, real_entry, new_gtt_id)
+        log.info("[Executor]   pyramid complete  existing_order=%s  updated=%s",
+                 existing["Order_ID"], updated)
         return {"success": True, "order_id": order_id,
                 "mode": "pyramid", "existing_order_id": existing["Order_ID"],
                 "added_qty": added_qty, "total_qty": total_qty, "trade": updated}
@@ -209,7 +222,21 @@ def execute_trade(
     _divider("PLACE GTT")
     gtt_id = ""
 
-    
+    gtt = broker.place_gtt_order(
+        trading_symbol=symbol,
+        token=angel_token,
+        qty=real_qty,
+        entry_price=real_entry,
+        sl_price=sl_price,
+        target_price=target_price,
+    )
+
+    log.info("[Executor]   raw_response = %s", gtt)
+    if gtt["status"] == "success":
+        gtt_id = gtt.get("gtt_id", "")
+        log.info("[Executor]   gtt_id       = %s", gtt_id)
+    else:
+        log.warning("[Executor] GTT failed (non-fatal): %s", gtt.get("message"))
 
     # ── Save trade ──────────────────────────────────────────
     _divider("TRADE SAVED")
@@ -221,7 +248,7 @@ def execute_trade(
         sl_price=sl_price,
         target_price=target_price,
         qty=real_qty,
-        gtt_id="",         # GTT removed
+        gtt_id=gtt_id,
         mode="AUTO" if is_auto else "MANUAL", 
     )
     log.info("[Executor]   trade_row = %s", trade)
@@ -231,13 +258,8 @@ def execute_trade(
        log.info("[Executor]   watchlist marked AUTO_BUYED for %s", symbol)
     
     _divider("TRADE COMPLETE")
-    
-    log.info(
-        "[Executor]   symbol=%s  order_id=%s  qty=%d  entry=%.2f  "
-        "(trailing engine + exit_scheduler will manage exits)",
-        symbol, order_id, real_qty, real_entry,
-    )
-
+    log.info("[Executor]   symbol=%s  order_id=%s  qty=%d  entry=%.2f  gtt=%s",
+             symbol, order_id, real_qty, real_entry, gtt_id or "N/A")
     return {
         "success": True,
         "order_id": order_id,
