@@ -1186,99 +1186,109 @@ function resetCdr() {
 }
 
 // ══════════════════════════════════════════════════════
-// EC2 SERVER CONTROL
+//  EC2 SERVER CONTROL
+//  Replace LAMBDA_URL with your Lambda Function URL.
+//  e.g. https://abc123.lambda-url.ap-south-1.on.aws
 // ══════════════════════════════════════════════════════
-const EC2_LAMBDA_URL = "https://smvem5or4s3jpwrhgucgipyvh40erszy.lambda-url.ap-south-1.on.aws/"; 
+const EC2_LAMBDA_URL = "https://smvem5or4s3jpwrhgucgipyvh40erszy.lambda-url.ap-south-1.on.aws";
 
-let ec2State = "unknown"; 
-let ec2Busy = false; 
-let ec2PollTimer = null; 
+// Internal EC2 state
+let ec2State      = "unknown";   // running | stopped | stopping | pending | not_found | unknown
+let ec2Busy       = false;       // true while a start/stop is in flight
+let ec2PollTimer  = null;
 
+// ── UI helpers ────────────────────────────────────────
 function _ec2SetUI(state, busy) {
-  const dot = $("ec2Dot");
-  const label = $("ec2Label");
+  const dot    = $("ec2Dot");
+  const label  = $("ec2Label");
   const toggle = $("ec2Toggle");
-  const tip = $("ec2Tip");
+  const tip    = $("ec2Tip");
 
+  // Remove all state classes from dot
   dot.className = "ec2-dot";
 
   if (busy) {
-    const isStarting = (state === "pending" || ec2State === "stopped");
+    const isStarting = (state === "pending"  || ec2State === "stopped");
     dot.classList.add(isStarting ? "starting" : "stopping");
-    label.textContent = isStarting ? "Starting…" : "Terminating…";
-    toggle.disabled = true;
-    tip.textContent = isStarting ? "Starting EC2 server…" : "Terminating EC2 server…";
+    label.textContent  = isStarting ? "Starting…" : "Terminating…";
+    toggle.disabled    = true;
+    tip.textContent    = isStarting ? "Starting EC2…" : "Terminating EC2…";
     return;
   }
 
   switch (state) {
     case "running":
       dot.classList.add("on");
-      label.textContent = "Online";
-      toggle.checked = true;
-      toggle.disabled = false;
-      tip.textContent = "15.207.151.67 · Click to terminate";
+      label.textContent    = "Online";
+      toggle.checked       = true;
+      toggle.disabled      = false;
+      tip.textContent      = "15.207.151.67 · Click to terminate";
       break;
     case "stopped":
-    case "not_found":
-    case "terminated":
-      label.textContent = "Offline";
-      toggle.checked = false;
-      toggle.disabled = false;
-      tip.textContent = "Server offline · Click to start";
+      label.textContent    = "Offline";
+      toggle.checked       = false;
+      toggle.disabled      = false;
+      tip.textContent      = "Server offline · Click to start";
       break;
     case "pending":
       dot.classList.add("starting");
-      label.textContent = "Starting…";
-      toggle.checked = true;
-      toggle.disabled = true;
-      tip.textContent = "Pending initializations…";
+      label.textContent    = "Starting…";
+      toggle.checked       = true;
+      toggle.disabled      = true;
+      tip.textContent      = "EC2 is starting up…";
       break;
     case "stopping":
       dot.classList.add("terminating");
-      label.textContent = "Stopping…";
-      toggle.checked = false;
-      toggle.disabled = true;
-      tip.textContent = "Shutting down system…";
+      label.textContent    = "Terminating…";
+      toggle.checked       = false;
+      toggle.disabled      = true;
+      tip.textContent      = "EC2 is stopping…";
+      break;
+    case "not_found":
+      label.textContent    = "Missing";
+      toggle.checked       = false;
+      toggle.disabled      = false;
+      tip.textContent      = "Instance not found";
       break;
     default:
-      label.textContent = "Server";
-      toggle.checked = false;
-      toggle.disabled = false; // Always allow activation on errors
-      tip.textContent = "Offline (Click to retry)";
+      label.textContent    = "Server";
+      toggle.checked       = false;
+      toggle.disabled      = false;
+      tip.textContent      = "Status unknown";
   }
 }
 
+// ── Lambda call ───────────────────────────────────────
 async function _ec2Call(action) {
+  const method = action === "status" ? "GET" : "POST";
+  const opts   = {
+    method,
+    headers: { "Content-Type": "application/json" },
+  };
+  if (method === "POST") opts.body = JSON.stringify({ action });
+
   try {
-    const base = EC2_LAMBDA_URL.endsWith("/") ? EC2_LAMBDA_URL : EC2_LAMBDA_URL + "/";
-    const targetUrl = action === "status" ? `${base}?action=status` : base;
-
-    const options = {
-      method: action === "status" ? "GET" : "POST",
-      headers: { "Content-Type": "application/json" },
-      body: action !== "status" ? JSON.stringify({ action: action }) : undefined
-    };
-
-    const r = await fetch(targetUrl, options);
-    if (!r.ok) throw new Error(`HTTP Error ${r.status}`);
-    return await r.json();
+    const res  = await fetch(EC2_LAMBDA_URL, opts);
+    const data = await res.json();
+    return data;
   } catch (e) {
-    console.error("EC2 Connection Failed:", e);
-    return { success: false, state: "stopped", error: e.message };
+    return { success: false, error: e.message };
   }
 }
 
-function _ec2PollUntilStable() {
-  return new Promise((resolve) => {
-    let attempts = 0;
-    const maxAttempts = 40;
+// ── Poll until stable state ───────────────────────────
+async function _ec2PollUntilStable() {
+  // Polling up to 3 min (36 × 5s)
+  let attempts = 0;
+  const maxAttempts = 36;
 
+  return new Promise(resolve => {
     const poll = async () => {
       attempts++;
       const d = await _ec2Call("status");
       const s = d.state || "unknown";
 
+      // Transitional states
       if (s === "pending" || s === "stopping") {
         _ec2SetUI(s, false);
         if (attempts < maxAttempts) {
@@ -1289,91 +1299,112 @@ function _ec2PollUntilStable() {
         return;
       }
 
-      ec2State = (s === "terminated" || s === "not_found") ? "stopped" : s;
-      ec2Busy = false;
-      _ec2SetUI(ec2State, false);
-      resolve(ec2State);
+      // Stable state reached
+      ec2State = s;
+      ec2Busy  = false;
+      _ec2SetUI(s, false);
+      resolve(s);
     };
     poll();
   });
 }
 
+// ── Fetch status (called on page load + periodically) ─
 async function fetchEc2Status() {
-  if (ec2Busy) return;
-  try {
-    const d = await _ec2Call("status");
-    if (!d || d.success === false) {
-      ec2State = "stopped";
-      _ec2SetUI("stopped", false);
-      return;
-    }
-    const s = d.state || "unknown";
-    if (s !== "pending" && s !== "stopping") {
-      ec2State = (s === "terminated" || s === "not_found") ? "stopped" : s;
-      _ec2SetUI(ec2State, false);
-    }
-  } catch (err) {
-    ec2State = "stopped";
-    _ec2SetUI("stopped", false);
+  if (ec2Busy) return;   // don't interrupt an in-flight action
+  const d = await _ec2Call("status");
+  if (!d || !d.success) return;
+  const s = d.state || "unknown";
+  // Don't flicker UI during transitional state
+  if (s !== "pending" && s !== "stopping") {
+    ec2State = s;
+    _ec2SetUI(s, false);
   }
 }
 
+// ── Toggle handler ────────────────────────────────────
 async function handleEc2Toggle() {
   if (ec2Busy) {
-    $("ec2Toggle").checked = (ec2State === "running");
+    // Revert checkbox — action already in flight
+    $("ec2Toggle").checked = !$("ec2Toggle").checked;
     return;
   }
 
-  const checkbox = $("ec2Toggle");
-  if (checkbox.checked) {
+  const wantOn = $("ec2Toggle").checked;
+
+  if (wantOn) {
+    // ── START ─────────────────────────────────────────
+    if (ec2State === "running") {
+      toast("Server", "EC2 already running", "i"); return;
+    }
     ec2Busy = true;
     _ec2SetUI("pending", true);
-    toast("Server", "Issuing EC2 initialization command…", "i");
+    toast("Server", "Starting EC2…", "i");
 
     const d = await _ec2Call("start");
-    if (d && d.success) {
-      ec2State = "pending";
-      await _ec2PollUntilStable();
-      toast("Server", "EC2 online and live ✓", "s");
+    if (d.success) {
+      if (d.already) {
+        ec2State = "running"; ec2Busy = false;
+        _ec2SetUI("running", false);
+        toast("Server", "EC2 already running ✓", "s");
+      } else if (d.state === "running") {
+        ec2State = "running"; ec2Busy = false;
+        _ec2SetUI("running", false);
+        toast("Server", "EC2 started · 15.207.151.67 ✓", "s");
+      } else {
+        // Lambda returned before instance fully running (shouldn't happen)
+        await _ec2PollUntilStable();
+        toast("Server", `EC2 is ${ec2State}`, "i");
+      }
     } else {
       ec2Busy = false;
-      ec2State = "stopped";
-      _ec2SetUI("stopped", false);
-      checkbox.checked = false;
-      toast("Server Error", (d ? d.error : "Initialization failed"), "e");
+      _ec2SetUI(ec2State, false);
+      $("ec2Toggle").checked = (ec2State === "running");
+      toast("Server Error", d.error || "Start failed", "e");
     }
+
   } else {
-    if (!confirm("Are you sure you want to completely TERMINATE the EC2 Instance?")) {
-      checkbox.checked = true; 
+    // ── STOP ──────────────────────────────────────────
+    if (!confirm("Terminate the trading server?\nAll live connections will drop.")) {
+      $("ec2Toggle").checked = true;   // revert
       return;
+    }
+    if (ec2State === "stopped") {
+      toast("Server", "EC2 already stopped", "i"); return;
     }
     ec2Busy = true;
     _ec2SetUI("stopping", true);
     toast("Server", "Terminating EC2…", "i");
 
     const d = await _ec2Call("terminate");
-    if (d && d.success) {
+    if (d.success) {
+      // Lambda returns immediately after calling stop_instances
+      // Poll until actually stopped
       ec2State = "stopping";
       await _ec2PollUntilStable();
       toast("Server", "EC2 terminated ✓", "s");
     } else {
       ec2Busy = false;
       _ec2SetUI(ec2State, false);
-      checkbox.checked = (ec2State === "running");
-      toast("Server Error", (d ? d.error : "Stop failed"), "e");
+      $("ec2Toggle").checked = (ec2State === "running");
+      toast("Server Error", d.error || "Stop failed", "e");
     }
   }
 }
 
+// Allow clicking the whole .ec2-wrap (not just the switch nub)
 function onEc2WrapClick(e) {
+  // The <label> already handles the checkbox click — avoid double-fire
   if (e.target.closest("label") || e.target.tagName === "INPUT") return;
   const t = $("ec2Toggle");
   if (!t.disabled) { t.checked = !t.checked; handleEc2Toggle(); }
 }
 
-// Initialize components immediately on load
+// ── Init + periodic poll ──────────────────────────────
+// Fetch status on page load, then every 30s
 fetchEc2Status();
 setInterval(fetchEc2Status, 30000);
+
 
 (async function init() {
   await doRefresh();

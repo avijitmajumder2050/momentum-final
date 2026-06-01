@@ -263,6 +263,74 @@ footer{background:var(--card);border-top:1px solid var(--border);
   margin-right:5px;vertical-align:middle}
 @keyframes spin{to{transform:rotate(360deg)}}
 main{padding-bottom:56px}
+
+/* ── EC2 TOGGLE ──────────────────────────────── */
+.ec2-wrap{
+  display:flex;align-items:center;gap:8px;
+  padding:4px 12px 4px 10px;
+  border-radius:20px;
+  border:1px solid rgba(255,255,255,.12);
+  background:rgba(255,255,255,.07);
+  cursor:pointer;user-select:none;
+  transition:background .2s,border-color .2s;
+  position:relative;
+}
+.ec2-wrap:hover{background:rgba(255,255,255,.13)}
+.ec2-dot{
+  width:7px;height:7px;border-radius:50%;
+  background:#4a5568;flex-shrink:0;
+  transition:background .3s,box-shadow .3s;
+}
+.ec2-dot.on{
+  background:#4ade80;
+  box-shadow:0 0 0 0 rgba(74,222,128,.7);
+  animation:ec2pulse 2s infinite;
+}
+.ec2-dot.starting{
+  background:var(--amber2);
+  animation:ec2blink .6s infinite;
+}
+.ec2-dot.terminating{
+  background:#f87171;
+  animation:ec2blink .6s infinite;
+}
+@keyframes ec2pulse{
+  0%{box-shadow:0 0 0 0 rgba(74,222,128,.7)}
+  70%{box-shadow:0 0 0 5px rgba(74,222,128,0)}
+  100%{box-shadow:0 0 0 0 rgba(74,222,128,0)}
+}
+@keyframes ec2blink{0%,100%{opacity:1}50%{opacity:.3}}
+.ec2-label{
+  font-size:10px;font-weight:700;letter-spacing:.5px;
+  color:#c8daea;text-transform:uppercase;
+  min-width:48px;text-align:center;
+}
+.ec2-switch{
+  position:relative;display:inline-block;
+  width:32px;height:17px;flex-shrink:0;
+}
+.ec2-switch input{opacity:0;width:0;height:0}
+.ec2-slider{
+  position:absolute;cursor:pointer;inset:0;
+  background:#334455;border-radius:17px;transition:.25s;
+}
+.ec2-slider::before{
+  position:absolute;content:'';height:11px;width:11px;
+  left:3px;bottom:3px;background:#fff;border-radius:50%;
+  transition:.25s;box-shadow:0 1px 3px rgba(0,0,0,.3);
+}
+input:checked + .ec2-slider{background:#4ade80}
+input:checked + .ec2-slider::before{transform:translateX(15px)}
+input:disabled + .ec2-slider{opacity:.5;cursor:not-allowed}
+.ec2-tooltip{
+  position:absolute;top:calc(100%+6px);right:0;
+  background:#1e2d3d;color:#c8daea;
+  font-size:10px;font-weight:600;letter-spacing:.3px;
+  padding:5px 10px;border-radius:6px;white-space:nowrap;
+  pointer-events:none;opacity:0;transition:opacity .15s;
+  border:1px solid rgba(255,255,255,.1);z-index:400;
+}
+.ec2-wrap:hover .ec2-tooltip{opacity:1}
 </style>
 </head>
 <body>
@@ -290,6 +358,16 @@ main{padding-bottom:56px}
     </div>
     <button class="hbtn" onclick="triggerScan()">↻ Scan</button>
     <button class="hbtn solid" id="refBtn" onclick="doRefresh()">↻ Refresh All</button>
+    <!-- ── EC2 SERVER TOGGLE ──────────────────────────── -->
+    <div class="ec2-wrap" onclick="onEc2WrapClick(event)">
+      <div class="ec2-dot" id="ec2Dot"></div>
+      <span class="ec2-label" id="ec2Label">Server</span>
+      <label class="ec2-switch" onclick="event.stopPropagation()">
+        <input type="checkbox" id="ec2Toggle" onchange="handleEc2Toggle()" disabled>
+        <span class="ec2-slider"></span>
+      </label>
+      <div class="ec2-tooltip" id="ec2Tip">Checking…</div>
+    </div>
     <span class="mkt closed" id="mktChip">Closed</span>
     <span id="clock">--:--:-- IST</span>
   </div>
@@ -1108,8 +1186,195 @@ function resetCdr() {
 }
 
 // ══════════════════════════════════════════════════════
-//  INIT
+// EC2 SERVER CONTROL
 // ══════════════════════════════════════════════════════
+const EC2_LAMBDA_URL = "https://smvem5or4s3jpwrhgucgipyvh40erszy.lambda-url.ap-south-1.on.aws/"; 
+
+let ec2State = "unknown"; 
+let ec2Busy = false; 
+let ec2PollTimer = null; 
+
+function _ec2SetUI(state, busy) {
+  const dot = $("ec2Dot");
+  const label = $("ec2Label");
+  const toggle = $("ec2Toggle");
+  const tip = $("ec2Tip");
+
+  dot.className = "ec2-dot";
+
+  if (busy) {
+    const isStarting = (state === "pending" || ec2State === "stopped");
+    dot.classList.add(isStarting ? "starting" : "stopping");
+    label.textContent = isStarting ? "Starting…" : "Terminating…";
+    toggle.disabled = true;
+    tip.textContent = isStarting ? "Starting EC2 server…" : "Terminating EC2 server…";
+    return;
+  }
+
+  switch (state) {
+    case "running":
+      dot.classList.add("on");
+      label.textContent = "Online";
+      toggle.checked = true;
+      toggle.disabled = false;
+      tip.textContent = "15.207.151.67 · Click to terminate";
+      break;
+    case "stopped":
+    case "not_found":
+    case "terminated":
+      label.textContent = "Offline";
+      toggle.checked = false;
+      toggle.disabled = false;
+      tip.textContent = "Server offline · Click to start";
+      break;
+    case "pending":
+      dot.classList.add("starting");
+      label.textContent = "Starting…";
+      toggle.checked = true;
+      toggle.disabled = true;
+      tip.textContent = "Pending initializations…";
+      break;
+    case "stopping":
+      dot.classList.add("terminating");
+      label.textContent = "Stopping…";
+      toggle.checked = false;
+      toggle.disabled = true;
+      tip.textContent = "Shutting down system…";
+      break;
+    default:
+      label.textContent = "Server";
+      toggle.checked = false;
+      toggle.disabled = false; // Always allow activation on errors
+      tip.textContent = "Offline (Click to retry)";
+  }
+}
+
+async function _ec2Call(action) {
+  try {
+    const base = EC2_LAMBDA_URL.endsWith("/") ? EC2_LAMBDA_URL : EC2_LAMBDA_URL + "/";
+    const targetUrl = action === "status" ? `${base}?action=status` : base;
+
+    const options = {
+      method: action === "status" ? "GET" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: action !== "status" ? JSON.stringify({ action: action }) : undefined
+    };
+
+    const r = await fetch(targetUrl, options);
+    if (!r.ok) throw new Error(`HTTP Error ${r.status}`);
+    return await r.json();
+  } catch (e) {
+    console.error("EC2 Connection Failed:", e);
+    return { success: false, state: "stopped", error: e.message };
+  }
+}
+
+function _ec2PollUntilStable() {
+  return new Promise((resolve) => {
+    let attempts = 0;
+    const maxAttempts = 40;
+
+    const poll = async () => {
+      attempts++;
+      const d = await _ec2Call("status");
+      const s = d.state || "unknown";
+
+      if (s === "pending" || s === "stopping") {
+        _ec2SetUI(s, false);
+        if (attempts < maxAttempts) {
+          ec2PollTimer = setTimeout(poll, 5000);
+        } else {
+          resolve(s);
+        }
+        return;
+      }
+
+      ec2State = (s === "terminated" || s === "not_found") ? "stopped" : s;
+      ec2Busy = false;
+      _ec2SetUI(ec2State, false);
+      resolve(ec2State);
+    };
+    poll();
+  });
+}
+
+async function fetchEc2Status() {
+  if (ec2Busy) return;
+  try {
+    const d = await _ec2Call("status");
+    if (!d || d.success === false) {
+      ec2State = "stopped";
+      _ec2SetUI("stopped", false);
+      return;
+    }
+    const s = d.state || "unknown";
+    if (s !== "pending" && s !== "stopping") {
+      ec2State = (s === "terminated" || s === "not_found") ? "stopped" : s;
+      _ec2SetUI(ec2State, false);
+    }
+  } catch (err) {
+    ec2State = "stopped";
+    _ec2SetUI("stopped", false);
+  }
+}
+
+async function handleEc2Toggle() {
+  if (ec2Busy) {
+    $("ec2Toggle").checked = (ec2State === "running");
+    return;
+  }
+
+  const checkbox = $("ec2Toggle");
+  if (checkbox.checked) {
+    ec2Busy = true;
+    _ec2SetUI("pending", true);
+    toast("Server", "Issuing EC2 initialization command…", "i");
+
+    const d = await _ec2Call("start");
+    if (d && d.success) {
+      ec2State = "pending";
+      await _ec2PollUntilStable();
+      toast("Server", "EC2 online and live ✓", "s");
+    } else {
+      ec2Busy = false;
+      ec2State = "stopped";
+      _ec2SetUI("stopped", false);
+      checkbox.checked = false;
+      toast("Server Error", (d ? d.error : "Initialization failed"), "e");
+    }
+  } else {
+    if (!confirm("Are you sure you want to completely TERMINATE the EC2 Instance?")) {
+      checkbox.checked = true; 
+      return;
+    }
+    ec2Busy = true;
+    _ec2SetUI("stopping", true);
+    toast("Server", "Terminating EC2…", "i");
+
+    const d = await _ec2Call("terminate");
+    if (d && d.success) {
+      ec2State = "stopping";
+      await _ec2PollUntilStable();
+      toast("Server", "EC2 terminated ✓", "s");
+    } else {
+      ec2Busy = false;
+      _ec2SetUI(ec2State, false);
+      checkbox.checked = (ec2State === "running");
+      toast("Server Error", (d ? d.error : "Stop failed"), "e");
+    }
+  }
+}
+
+function onEc2WrapClick(e) {
+  if (e.target.closest("label") || e.target.tagName === "INPUT") return;
+  const t = $("ec2Toggle");
+  if (!t.disabled) { t.checked = !t.checked; handleEc2Toggle(); }
+}
+
+// Initialize components immediately on load
+fetchEc2Status();
+setInterval(fetchEc2Status, 30000);
+
 (async function init() {
   await doRefresh();
   setInterval(() => { if (autoRef) { fetchWatchlist(); fetchActiveTrades(); } }, 30000);

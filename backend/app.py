@@ -189,10 +189,11 @@ def api_active_trades():
                 r["ltp"] = ltp or 0
                 entry    = float(t["Entry_Price"])
                 rem_qty  = get_remaining_qty(t)
-                r["unrealized_pnl"] = round((ltp - entry) * rem_qty, 2) if ltp else 0
+                r["live_pnl"] = round((ltp - entry) * rem_qty, 2) if ltp else 0
+                r["pct_change"]  = round((ltp-entry)/entry*100,2) if entry else 0
             except Exception:
                 r["ltp"] = 0
-                r["unrealized_pnl"] = 0
+                r["live_pnl"] = 0
             enriched.append(r)
 
         return jsonify({"success": True, "data": enriched})
