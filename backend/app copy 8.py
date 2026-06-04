@@ -66,10 +66,20 @@ start_scheduler()   # ← next-day SL validation thread
 # ── Health ────────────────────────────────────────────────────────────────────
 @app.get("/health")
 def health():
-   
+    mon  = get_monitor()
+    eng  = get_engine()
+    sched= get_scheduler()
     return jsonify({
-        "status": "ok",
-        "service": "momentum-api"
+        "status":              "ok",
+        "monitor_running":     mon.running,
+        "auto_buy_enabled":    mon.auto_buy_enabled,
+        "engine_running":      eng.running,
+        "scheduler_running":   sched.running,
+        "breakouts_live":      mon.status.get("breakouts", []),
+        "active_trades":       eng.status.get("active_trades", 0),
+        "sl_pending_trades":   sched.status.get("pending_count", 0),
+        "last_poll":           mon.status.get("last_poll"),
+        "last_trade":          mon.status.get("last_trade"),
     })
 
 
