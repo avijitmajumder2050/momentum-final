@@ -29,24 +29,25 @@ services:
 
 
   watchdog:
-    image: docker:24
-    container_name: momentum-watchdog
-    restart: unless-stopped
+  image: docker:24-cli
+  container_name: momentum-watchdog
+  restart: unless-stopped
 
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+  volumes:
+    - /var/run/docker.sock:/var/run/docker.sock
 
-    entrypoint: ["/bin/sh", "-c"]
-    command: >
-      while true; do
-        STATUS=$(docker inspect -f '{{.State.Health.Status}}' momentum-api 2>/dev/null);
+  entrypoint: ["/bin/sh", "-c"]
 
-        echo "$(date) - Health: $STATUS";
+  command: >
+    while true; do
+      STATUS=$(docker inspect -f '{{.State.Health.Status}}' momentum-api 2>/dev/null || echo "missing");
 
-        if [ "$STATUS" = "unhealthy" ]; then
-          echo "Restarting momentum-api...";
-          docker restart momentum-api;
-        fi;
+      echo "$(date) - Health: $STATUS";
 
-        sleep 30;
-      done
+      if [ "$STATUS" = "unhealthy" ] || [ "$STATUS" = "missing" ]; then
+        echo "Restarting momentum-api...";
+        docker restart momentum-api;
+      fi;
+
+      sleep 20;
+    done
