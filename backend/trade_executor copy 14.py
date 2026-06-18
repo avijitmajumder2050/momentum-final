@@ -42,11 +42,11 @@ def _divider(label: str = "") -> None:
 # MAIN EXECUTION
 
 
-def round_to_tick_up(price: float, tick: float = 0.10) -> float:
+def round_to_tick_up(price: float, tick: float = 0.05) -> float:
     """Always round UP to nearest tick (for BUY orders)."""
     return round(math.ceil(price / tick) * tick, 2)
 
-def round_to_tick_down(price: float, tick: float = 0.10) -> float:
+def round_to_tick_down(price: float, tick: float = 0.05) -> float:
     """Always round DOWN to nearest tick (for SELL orders)."""
     return round(math.floor(price / tick) * tick, 2)
 # ─────────────────────────────────────────────
