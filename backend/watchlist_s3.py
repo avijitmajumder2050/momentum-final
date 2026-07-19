@@ -26,7 +26,7 @@ from datetime import date
 from typing import List, Dict, Optional
 import boto3
 from botocore.exceptions import ClientError
-from aws_s3_momentum import S3_BUCKET as ACTIVE_S3_BUCKET
+from aws_s3_momentum import S3_MOMENTUM_BUCKET as ACTIVE_S3_BUCKET
 
 log       = logging.getLogger(__name__)
 S3_BUCKET = ACTIVE_S3_BUCKET
