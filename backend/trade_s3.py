@@ -22,9 +22,10 @@ from datetime import datetime, date
 from typing import List, Dict, Optional
 import boto3
 from botocore.exceptions import ClientError
+from aws_s3 import S3_BUCKET as ACTIVE_S3_BUCKET
 
 log        = logging.getLogger(__name__)
-S3_BUCKET  = os.getenv("S3_BUCKET", "dhan-trading-data")
+S3_BUCKET  = ACTIVE_S3_BUCKET
 S3_KEY     = "angel/angel_active_trade.csv"
 _write_lock = threading.Lock()          # thread-safe writes
 
