@@ -39,27 +39,15 @@ def load_ssm_to_env(region: str = AWS_REGION) -> dict:
     return loaded
 
 
-def bootstrap():
-
-    log.info("Starting bootstrap...")
-
+def bootstrap() -> None:
     if os.getenv("USE_SSM", "true").lower() == "true":
-
         try:
-            load_ssm_to_env()
-
-            log.info("SSM parameters loaded successfully")
-
-            return
-
-        except Exception:
-            log.exception("Failed loading SSM")
-
+            load_ssm_to_env(); return
+        except Exception as e:
+            log.warning("[SSM] Failed (%s) — falling back to .env", e)
     from dotenv import load_dotenv
-
     load_dotenv()
-
-    log.info("Using .env configuration")
+    log.info("[SSM] Using .env")
 
 
 def push_env_to_ssm(region: str = AWS_REGION) -> None:
@@ -77,3 +65,6 @@ def push_env_to_ssm(region: str = AWS_REGION) -> None:
         print(f"  OK   {path} [{ptype}]")
 
 
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    push_env_to_ssm()

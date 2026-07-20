@@ -33,10 +33,12 @@ import os, logging
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
-from ssm_config import bootstrap
-bootstrap()
+
 from log_config import setup_logging
 setup_logging()
+
+from ssm_config import bootstrap
+bootstrap()
 
 from angel_broker        import get_broker
 from watchlist_s3        import (load_watchlist, add_symbol, delete_symbol,

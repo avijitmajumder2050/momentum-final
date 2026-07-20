@@ -125,64 +125,56 @@ _sync_thread: S3SyncThread | None = None
 
 
 # ── public entry point ────────────────────────────────────────────────────────
-def setup_logging():
+def setup_logging() -> None:
+    """
+    Call ONCE at the very top of app.py, right after ssm_config.bootstrap().
+
+    Idempotent — extra calls are silently ignored (gunicorn pre-fork safety).
+    """
     global _sync_thread
 
     root = logging.getLogger()
+    if root.handlers:           # already configured — skip
+        return
 
-    # Remove existing handlers installed by Flask/Gunicorn/etc.
-    for h in root.handlers[:]:
-        root.removeHandler(h)
-
-    root.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
-
-    fmt = logging.Formatter(_FMT, datefmt=_DFT)
-
-    #
-    # STDOUT
-    #
-    sh = logging.StreamHandler(sys.stdout)
-    sh.setFormatter(fmt)
-    root.addHandler(sh)
-
-    #
-    # FILE
-    #
-    os.makedirs(LOCAL_LOG_DIR, exist_ok=True)
-
-    fh = logging.handlers.RotatingFileHandler(
-        filename=LOCAL_PATH,
-        maxBytes=50 * 1024 * 1024,
-        backupCount=1,
-        encoding="utf-8"
-    )
-
-    fh.setFormatter(fmt)
-    root.addHandler(fh)
-
-    #
-    # Silence AWS noise
-    #
+    # Silence noisy AWS / HTTP library loggers
     for lib in ("boto3", "botocore", "urllib3", "s3transfer"):
         logging.getLogger(lib).setLevel(logging.WARNING)
 
-    #
-    # S3 Sync
-    #
+    root.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
+    fmt = logging.Formatter(_FMT, datefmt=_DFT)
+
+    # ── 1. stdout ─────────────────────────────────────────────────────────
+    sh = logging.StreamHandler()
+    sh.setFormatter(fmt)
+    root.addHandler(sh)
+
+    # ── 2. local file (source of truth for S3 sync) ───────────────────────
+    os.makedirs(LOCAL_LOG_DIR, exist_ok=True)
+
+    fh = logging.handlers.RotatingFileHandler(
+        filename    = LOCAL_PATH,
+        maxBytes    = 50 * 1024 * 1024,   # 50 MB — prevents disk fill
+        backupCount = 1,                   # keeps one .log.1 backup
+        encoding    = "utf-8",
+    )
+    fh.setFormatter(fmt)
+    root.addHandler(fh)
+
+    # ── 3. S3 sync thread ─────────────────────────────────────────────────
     if S3_ENABLED:
         _sync_thread = S3SyncThread()
         _sync_thread.start()
-        atexit.register(_final_sync)
+        atexit.register(_final_sync)       # flush on SIGTERM / container stop
+    else:
+        _log.info("[LogConfig] S3 sync disabled (LOG_S3_ENABLED=false)")
 
-    #
-    # TEST
-    #
-    logging.info("=" * 80)
-    logging.info("Logging Initialized")
-    logging.info("Root Handlers : %s", root.handlers)
-    logging.info("Log File      : %s", LOCAL_PATH)
-    logging.info("S3 Bucket     : %s", S3_BUCKET)
-    logging.info("=" * 80)
+    _log.info(
+        "[LogConfig] Ready  level=%s | local=%s | s3=%s | interval=%ds",
+        LOG_LEVEL, LOCAL_PATH,
+        f"s3://{S3_BUCKET}/{S3_KEY}" if S3_ENABLED else "disabled",
+        SYNC_SECS,
+    )
 
 
 def _final_sync() -> None:
