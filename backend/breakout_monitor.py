@@ -14,7 +14,8 @@ Fixes
 import os, time, logging, threading
 from datetime import datetime
 from typing import Optional
-from trade_s3 import already_traded_today
+from trade_s3 import count_auto_trades_today, auto_traded_symbols_today
+from trade_executor import MAX_AUTO_TRADES_PER_DAY
 
 log       = logging.getLogger(__name__)
 POLL_SECS = int(os.getenv("MONITOR_INTERVAL","15"))
@@ -115,12 +116,12 @@ class BreakoutMonitor:
         # ─────────────────────────────
         # Logging
         # ─────────────────────────────
-        traded_today = already_traded_today()
+        trades_today = count_auto_trades_today()
         log.info(
-            "[Monitor] auto_buy_enabled=%s | after_931=%s | already_traded_today=%s",
+            "[Monitor] auto_buy_enabled=%s | after_931=%s | auto_trades_today=%d/%d",
             self.auto_buy_enabled,
             _after_931(),
-            traded_today
+            trades_today, MAX_AUTO_TRADES_PER_DAY,
         )
 
         # ─────────────────────────────
@@ -129,18 +130,21 @@ class BreakoutMonitor:
         if not self.auto_buy_enabled or not _after_931():
             return
 
-        if traded_today:
-            log.info("[Monitor] Skipping auto-buy (already traded today)")
+        if trades_today >= MAX_AUTO_TRADES_PER_DAY:
+            log.info("[Monitor] Skipping auto-buy (daily limit %d reached)",
+                     MAX_AUTO_TRADES_PER_DAY)
             return
 
         # ─────────────────────────────
         # Candidate selection (NO get_top_candidate)
         # ─────────────────────────────
+        traded_syms = auto_traded_symbols_today()
         candidates = [
             r for r in enriched
             if r.get("Breakout") == "YES"
             and r.get("Action") != "AUTO_BUYED"
             and r["Symbol"] not in self.attempted_symbols
+            and r["Symbol"].upper() not in traded_syms
         ]
 
         candidates = sorted(
@@ -169,8 +173,8 @@ class BreakoutMonitor:
 
             log.info("[Monitor] Trying auto-buy rank=%s", candidate.get("Rank"))
             with TRADE_LOCK:
-                if already_traded_today():
-                    log.info("[Monitor] Trade already done (locked)")
+                if count_auto_trades_today() >= MAX_AUTO_TRADES_PER_DAY:
+                    log.info("[Monitor] Daily auto limit reached (locked)")
                     return
 
                 result = execute_trade(

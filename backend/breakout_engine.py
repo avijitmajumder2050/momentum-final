@@ -144,14 +144,19 @@ def get_top_candidate(broker) -> Dict | None:
     Return the single highest-ranked breakout candidate that has not been
     traded today.  Returns None if no eligible candidate.
     """
-    from trade_s3 import already_traded_today
+    from trade_s3 import count_auto_trades_today, auto_traded_symbols_today
+    from trade_executor import MAX_AUTO_TRADES_PER_DAY
     log.info("[Breakout] get_top_candidate called")
+    if count_auto_trades_today() >= MAX_AUTO_TRADES_PER_DAY:
+        log.info("[Breakout] get_top_candidate: daily auto limit reached")
+        return None
     enriched = run_breakout_engine(broker)
+    traded_syms = auto_traded_symbols_today()
     candidates = [
         r for r in enriched
         if r.get("Breakout")  == "YES"
         and r.get("Action")   != "AUTO_BUYED"
-        and not already_traded_today()
+        and r["Symbol"].upper() not in traded_syms
     ]
     log.info("[Breakout] get_top_candidate: eligible=%d", len(candidates))
     if not candidates:

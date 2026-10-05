@@ -19,14 +19,17 @@ import logging
 from typing import Tuple
 
 from position_sizing import calculate
-from trade_s3 import open_trade, already_traded_today, get_active_trade_by_symbol, add_qty_to_trade, get_remaining_qty
+from trade_s3 import (open_trade, count_auto_trades_today, auto_traded_symbols_today,
+                      get_active_trade_by_symbol, add_qty_to_trade, get_remaining_qty)
 from watchlist_s3 import mark_auto_buyed
 import math
+import os
 
 log = logging.getLogger(__name__)
 
 ORDER_POLL_SECS = 2
 ORDER_TIMEOUT = 1800
+MAX_AUTO_TRADES_PER_DAY = int(os.getenv("MAX_AUTO_TRADES_PER_DAY", "3"))
 
 
 # ─────────────────────────────────────────────
@@ -77,13 +80,18 @@ def execute_trade(
         symbol, entry_price, sl_price, target_price, is_auto
     )
 
-    # ── Rule: one trade per day ─────────────────────────────
-    if  is_auto and already_traded_today():
-         log.warning("[Executor]   BLOCKED — auto trade already taken today")
-         return {
-        "success": False,
-        "error": "Auto trade already taken today"
-    }
+    # ── Rule: daily auto-trade limit + one auto entry per symbol ────────
+    if is_auto:
+        taken = count_auto_trades_today()
+        if taken >= MAX_AUTO_TRADES_PER_DAY:
+            log.warning("[Executor]   BLOCKED — daily auto limit reached (%d/%d)",
+                        taken, MAX_AUTO_TRADES_PER_DAY)
+            return {"success": False,
+                    "error": f"Daily auto trade limit reached ({MAX_AUTO_TRADES_PER_DAY})"}
+        if symbol.upper() in auto_traded_symbols_today() or get_active_trade_by_symbol(symbol):
+            log.warning("[Executor]   BLOCKED — %s already traded today / still active", symbol)
+            return {"success": False,
+                    "error": f"{symbol} already auto-traded today or still active"}
 
     # ── Funds check ─────────────────────────────────────────
     _divider("FUNDS CHECK")

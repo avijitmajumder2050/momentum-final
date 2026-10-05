@@ -357,6 +357,26 @@ def already_traded_today() -> bool:
     return False
 
 
+def _auto_trades_today() -> List[Dict]:
+    today = datetime.now().strftime("%Y-%m-%d")
+    return [
+        r for r in _read()
+        if r.get("Mode") == "AUTO" and r.get("Entry_Time", "").startswith(today)
+    ]
+
+
+def count_auto_trades_today() -> int:
+    """Number of AUTO trades opened today (any status)."""
+    n = len(_auto_trades_today())
+    log.info("[Trades] AUTO trades today = %d", n)
+    return n
+
+
+def auto_traded_symbols_today() -> set:
+    """Upper-cased symbols that already had an AUTO trade opened today."""
+    return {r["Symbol"].upper() for r in _auto_trades_today()}
+
+
 def get_remaining_qty(trade: Dict) -> int:
     """Safe helper — prefer Remaining_Qty, fallback to Qty."""
     v = trade.get("Remaining_Qty") or trade.get("Qty") or "0"

@@ -5,9 +5,9 @@ Production-grade continuous trailing stop-loss engine for Angel One.
 
 Architecture (v2 — GTT-free, next-day SL)
 ------------------------------------------
-ALL trailing CALCULATIONS are unchanged:
-  Phase 1  : Breakeven at +3%
-  Phase 2  : Ladder trailing  (dynamic step by price tier)
+Trailing calculations (percentage based, env-tunable):
+  Phase 1  : Breakeven — SL → Entry once LTP >= Entry * (1 + TRAIL_BREAKEVEN_PCT)
+  Phase 2  : Trail     — SL = LTP * (1 - TRAIL_GAP_PCT), ratchets up only
 
 EXIT BEHAVIOR CHANGES:
   SL breach    → mark_sl_pending()  (NO immediate sell)
@@ -26,7 +26,6 @@ from typing import Optional
 
 from trade_s3 import (
     load_active,
-    update_trailing_sl,
     close_trade,
     update_trade,
     mark_sl_pending,
@@ -36,20 +35,18 @@ from exit_utils import get_next_trading_day
 
 log              = logging.getLogger(__name__)
 TRAIL_POLL_SECS  = int(os.getenv("TRAIL_POLL_SECS", "10"))
-BREAKEVEN_PCT    = 0.03   # 3% — fixed per requirement
+BREAKEVEN_PCT    = float(os.getenv("TRAIL_BREAKEVEN_PCT", "0.05"))  # move SL to entry at +5%
+TRAIL_GAP_PCT    = float(os.getenv("TRAIL_GAP_PCT",       "0.05"))  # SL trails 5% below LTP
+TICK             = 0.05
 
 
 # ─────────────────────────────────────────────
-# HELPERS  (UNCHANGED — do not touch)
+# HELPERS
 # ─────────────────────────────────────────────
-def get_dynamic_step(ltp: float) -> int:
-    """Ladder-based step logic (Requirement 5 — unchanged)."""
-    if ltp < 200:
-        return 1
-    elif 200 <= ltp < 500:
-        return 2
-    else:
-        return 5
+def trail_sl(ltp: float, entry: float) -> float:
+    """Trailing SL: TRAIL_GAP_PCT below LTP, rounded down to tick, never below entry."""
+    sl = math.floor(ltp * (1 - TRAIL_GAP_PCT) / TICK + 1e-9) * TICK   # epsilon: float floor
+    return round(max(sl, entry), 2)
 
 
 def _ist_now() -> datetime:
@@ -155,7 +152,7 @@ def process_trade(broker, trade: dict) -> None:
     # If status was SL_TRIGGER_PENDING but price recovered, restore_active
     # is handled by exit_scheduler at next-day open. Nothing to do here.
 
-    # ── 6. TRAILING CALCULATIONS (UNCHANGED) ─────────────────────────────────
+    # ── 6. TRAILING CALCULATIONS ─────────────────────────────────────────────
     # Only runs when:  status == ACTIVE  AND  ltp >= last_sl  AND  ltp < target
 
     # ── Phase 1: BREAKEVEN ────────────────────────────────────────────────────
@@ -163,28 +160,21 @@ def process_trade(broker, trade: dict) -> None:
         if ltp >= entry * (1 + BREAKEVEN_PCT):
             new_sl = round(entry, 2)
             log.info(
-                "[Trail] BREAKEVEN %s  ltp=%.2f >= entry*1.03=%.2f  "
+                "[Trail] BREAKEVEN %s  ltp=%.2f >= breakeven_trigger=%.2f  "
                 "→ SL moved to Entry %.2f",
                 symbol, ltp, entry * (1 + BREAKEVEN_PCT), new_sl,
             )
             _apply_sl_update(broker, trade, new_sl, "BREAKEVEN")
         return   # stay in Phase 1 until breakeven triggers; transition next cycle
 
-    # ── Phase 2: LADDER MOMENTUM TRAILING ────────────────────────────────────
-    step        = get_dynamic_step(ltp)
-    price_move  = ltp - entry
-    steps_moved = math.floor(price_move / step)
-
-    # Formula: Entry + (StepsMoved - 2) * Step  — provides momentum cushion
-    candidate_sl = entry + (steps_moved - 2) * step
-    candidate_sl = round(float(candidate_sl), 2)
+    # ── Phase 2: PERCENTAGE TRAILING ─────────────────────────────────────────
+    candidate_sl = trail_sl(ltp, entry)
 
     # Idempotency: only move SL UP, never down
     if candidate_sl > last_sl:
         log.info(
-            "[Trail] LADDER SHIFT %s  step=%d  price_move=%.2f  "
-            "steps=%d  SL %.2f → %.2f",
-            symbol, step, price_move, steps_moved, last_sl, candidate_sl,
+            "[Trail] TRAIL SHIFT %s  ltp=%.2f  gap=%.1f%%  SL %.2f → %.2f",
+            symbol, ltp, TRAIL_GAP_PCT * 100, last_sl, candidate_sl,
         )
         _apply_sl_update(broker, trade, candidate_sl, "TRAILING")
 
@@ -202,8 +192,7 @@ def _apply_sl_update(broker, trade: dict, new_sl: float, sub_action: str) -> Non
     order_id = trade["Order_ID"]
     symbol   = trade["Symbol"]
 
-    # Persist new SL
-    update_trailing_sl(order_id, new_sl)
+    # Persist new SL (one read-modify-write)
     update_trade(order_id, {
         "SubAction":       sub_action,
         "Trailing_Active": "True",

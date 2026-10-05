@@ -11,7 +11,7 @@ CSV schema: symbol, token, margin
   RELIANCE-EQ, 3045, 5
   INFY-EQ,     1594, 1
 """
-import io, os, time, logging, threading
+import io, os, time, json, logging, threading
 from typing import Optional
 import pyotp, boto3
 import pandas as pd
@@ -27,6 +27,8 @@ TOKEN_S3_KEY = "angel/angel_tokens_dump_margin.csv"
 _login_lock = threading.Lock()
 _last_login_ts = 0
 LOGIN_COOLDOWN = 2   # safer than 1 sec
+# Daily Angel session (jwt/refresh/feed) cached in SSM so restarts reuse it
+SESSION_PARAM  = os.getenv("ANGEL_SESSION_PARAM", "/momentum-watchlist/angel-session")
 def _div(label: str = "") -> None:
     pad = max(0, 48 - len(label))
     if label:
@@ -43,6 +45,7 @@ class AngelBroker:
         self.client_id   = os.getenv("userid",  "")
         self.password    = os.getenv("pin",      "")
         self._obj: Optional[SmartConnect] = None
+        self._session_rejected = False   # cached SSM session failed auth → force fresh login
         self._lock       = threading.Lock()
         self._last_login = 0.0
         self._api_lock = threading.Lock()
@@ -144,6 +147,15 @@ class AngelBroker:
             if self._obj:
                 return
 
+            # ── Reuse today's session from SSM (unless it was just rejected) ──
+            if not self._session_rejected:
+                obj = self._restore_session()
+                if obj:
+                    self._obj = obj
+                    self._last_login = time.time()
+                    log.info("[Angel] Session restored from SSM")
+                    return
+
             now = time.time()
             wait = LOGIN_COOLDOWN - (now - _last_login_ts)
             if wait > 0:
@@ -169,8 +181,63 @@ class AngelBroker:
 
             self._obj = obj
             self._last_login = time.time()
+            self._session_rejected = False
 
             log.info("[Angel] Session established")
+            self._save_session(obj)
+
+    # ── Session cache (SSM) ───────────────────────────────────────────────────
+    def _restore_session(self) -> Optional[SmartConnect]:
+        """Return a SmartConnect built from today's SSM session, or None."""
+        from exit_utils import ist_today
+        try:
+            raw = self._ssm.get_parameter(Name=SESSION_PARAM, WithDecryption=True)["Parameter"]["Value"]
+            s   = json.loads(raw)
+        except self._ssm.exceptions.ParameterNotFound:
+            log.info("[Session] no cached session in SSM")
+            return None
+        except Exception as e:
+            log.warning("[Session] SSM session read failed: %s", e)
+            return None
+
+        today = ist_today().strftime("%Y-%m-%d")
+        if s.get("date") != today or s.get("client_id") != self.client_id:
+            log.info("[Session] cached session is stale (date=%s) — fresh login", s.get("date"))
+            return None
+
+        obj = SmartConnect(
+            api_key       = self.api_key,
+            access_token  = s.get("jwt"),
+            refresh_token = s.get("refresh"),
+            feed_token    = s.get("feed"),
+            userId        = self.client_id,
+        )
+        try:
+            prof = obj.getProfile(s.get("refresh"))
+            if prof and prof.get("status"):
+                return obj
+            log.warning("[Session] cached session rejected: %s", prof and prof.get("message"))
+        except Exception as e:
+            log.warning("[Session] cached session check failed: %s", e)
+        return None
+
+    def _save_session(self, obj: SmartConnect) -> None:
+        from exit_utils import ist_today
+        payload = {
+            "date":      ist_today().strftime("%Y-%m-%d"),
+            "client_id": self.client_id,
+            "jwt":       getattr(obj, "access_token", None),
+            "refresh":   getattr(obj, "refresh_token", None),
+            "feed":      getattr(obj, "feed_token", None),
+        }
+        try:
+            self._ssm.put_parameter(
+                Name=SESSION_PARAM, Value=json.dumps(payload),
+                Type="SecureString", Overwrite=True,
+            )
+            log.info("[Session] session saved to SSM %s (date=%s)", SESSION_PARAM, payload["date"])
+        except Exception as e:
+            log.error("[Session] SSM session save failed: %s", e)
 
     # ─────────────────────────────────────────
     # SAFE API CALL (FIXED)
@@ -201,6 +268,11 @@ class AngelBroker:
             try:
                 self._ensure_session()
 
+                # After a relogin, rebind to the NEW session object
+                owner = getattr(fn, "__self__", None)
+                if isinstance(owner, SmartConnect) and owner is not self._obj:
+                    fn = getattr(self._obj, fn.__name__)
+
                 # ✅ GLOBAL RATE LIMIT
                 with self._api_lock:
                     now = time.time()
@@ -221,6 +293,7 @@ class AngelBroker:
                 if any(k in msg for k in ("unauthorized","session","jwt")):
                     log.warning("[Session] expired → relogin")
                     self._obj = None
+                    self._session_rejected = True   # don't reuse the cached token
                     continue
 
                 # 🚫 rate limit retry

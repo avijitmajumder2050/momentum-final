@@ -22,6 +22,11 @@
         "ssm:GetParametersByPath"
       ],
       "Resource": "arn:aws:ssm:ap-south-1:976274969320:parameter/momentum-watchlist/*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["ssm:PutParameter"],
+      "Resource": "arn:aws:ssm:ap-south-1:976274969320:parameter/momentum-watchlist/angel-session"
     }
   ]
 }
