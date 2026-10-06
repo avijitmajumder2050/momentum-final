@@ -20,7 +20,7 @@ Rules
 - Risk_Percent = (Entry - SL) / Entry * 100
 - Rank      : computed by ranking engine, higher = better
 """
-import io, csv, os, logging
+import io, csv, os, logging, functools
 from datetime import datetime
 from datetime import date
 from typing import List, Dict, Optional
@@ -38,8 +38,10 @@ HEADERS = [
 ]
 
 
+@functools.lru_cache(maxsize=None)
 def _s3():
-    return boto3.client("s3", region_name=os.getenv("AWS_REGION","ap-south-1"))
+    """One shared client — boto3 clients are thread-safe and reuse connections."""
+    return boto3.client("s3", region_name=os.getenv("AWS_REGION", "ap-south-1"))
 
 
 def _read() -> List[Dict]:

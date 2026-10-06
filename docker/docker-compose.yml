@@ -29,10 +29,14 @@ services:
     # volumes:
     #   - ../backend:/app
 
-    # ✅ FIXED HEALTHCHECK
+    # Cap memory so this container can't freeze the shared t3.micro host;
+    # if exceeded, only this container is OOM-killed and restarted.
+    mem_limit: 300m
+
+    # Healthcheck without curl (python:3.11-slim has no curl)
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:5000/health || exit 1"]
-      interval: 20s
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=4)"]
+      interval: 30s
       timeout: 5s
       retries: 5
       start_period: 20s

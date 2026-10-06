@@ -39,23 +39,26 @@ def run_breakout_engine(broker) -> List[Dict]:
     List of watchlist rows enriched with live `ltp` field (in-memory only).
     """
     data = load_watchlist()
-    log.info("[Breakout]   watchlist rows loaded = %d", len(data))
+    log.debug("[Breakout]   watchlist rows loaded = %d", len(data))
     if not data:
         log.warning("[Breakout]   watchlist is EMPTY — nothing to scan")
         return []
+
+    _TRACKED = ("Breakout", "Risk_Percent", "Action", "Rank")
+    before = [tuple(r.get(k, "") for k in _TRACKED) for r in data]
 
     # ── Step 1: build instruments list for bulk LTP ───────────────────────────
     instruments = [
         {"symboltoken": r["Angel_Token"], "tradingsymbol": r["Symbol"]}
         for r in data if r.get("Angel_Token")
     ]
-    log.info("[Breakout]   fetching bulk LTP for %d instruments", len(instruments))
+    log.debug("[Breakout]   fetching bulk LTP for %d instruments", len(instruments))
     live_data = broker.get_bulk_ltp(instruments) if instruments else {}
-    log.info("[Breakout]   LTP resolved for %d/%d instruments",
+    log.debug("[Breakout]   LTP resolved for %d/%d instruments",
              len(live_data), len(instruments))
 
     # ── Step 2: compute breakout + scoring ───────────────────────────────────
-    log.info("[Breakout] ── PER-SYMBOL ANALYSIS" )
+    log.debug("[Breakout] ── PER-SYMBOL ANALYSIS" )
     scored = []
     for row in data:
         sym   = row["Symbol"]
@@ -93,7 +96,7 @@ def run_breakout_engine(broker) -> List[Dict]:
         row["Action"]       = current_action
         row["Last_Updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        log.info(
+        log.debug(
             "[Breakout]   %-20s  ltp=%-8.2f  entry=%-8.2f  sl=%-8.2f  "
             "risk=%-5.2f%%  strength=%-7.4f%%  score=%-8.4f  breakout=%s  action=%s",
             sym, ltp, entry, sl, risk_pct, strength, score, breakout, current_action,
@@ -119,9 +122,12 @@ def run_breakout_engine(broker) -> List[Dict]:
         if item["breakout"] == "NO":
             item["row"]["Rank"] = "0"
 
-    # ── Step 4: write updated watchlist back to S3 ────────────────────────────
+    # ── Step 4: write back to S3 only if breakout/rank/action changed ───────
     updated_rows = [s["row"] for s in scored]
-    save_watchlist(updated_rows)
+    after = [tuple(r.get(k, "") for k in _TRACKED) for r in updated_rows]
+    if after != before:
+        save_watchlist(updated_rows)
+        log.info("[Breakout]   watchlist changed → saved to S3")
 
     # ── Step 5: return enriched rows (with live ltp, NOT written to CSV) ──────
     enriched = []
@@ -131,7 +137,7 @@ def run_breakout_engine(broker) -> List[Dict]:
         r["score"] = s["score"]
         enriched.append(r)
 
-    log.info(
+    log.debug(
         "[Breakout] %d symbols scanned — %d breakouts",
         len(enriched),
         sum(1 for s in scored if s["breakout"] == "YES"),

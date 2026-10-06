@@ -85,6 +85,8 @@ class S3SyncThread(threading.Thread):
     def __init__(self) -> None:
         super().__init__(name="s3-log-sync", daemon=True)
         self._stop = threading.Event()
+        self._client = None
+        self._last_sig = None          # (size, mtime) of last uploaded file
 
     def stop(self) -> None:
         self._stop.set()
@@ -94,16 +96,23 @@ class S3SyncThread(threading.Thread):
         if not os.path.exists(LOCAL_PATH):
             return
         try:
-            import boto3
+            st  = os.stat(LOCAL_PATH)
+            sig = (st.st_size, st.st_mtime)
+            if sig == self._last_sig:
+                return                  # nothing new since last upload
+            if self._client is None:
+                import boto3
+                self._client = boto3.client("s3", region_name=AWS_REGION)
             with open(LOCAL_PATH, "rb") as fh:
                 data = fh.read()
 
-            boto3.client("s3", region_name=AWS_REGION).put_object(
+            self._client.put_object(
                 Bucket      = S3_BUCKET,
                 Key         = S3_KEY,
                 Body        = data,
                 ContentType = "text/plain",
             )
+            self._last_sig = sig
             _log.debug(
                 "[LogSync] %s → s3://%s/%s  (%d bytes)",
                 label, S3_BUCKET, S3_KEY, len(data),

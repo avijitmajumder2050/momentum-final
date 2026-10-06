@@ -1,10 +1,13 @@
 """
 exit_scheduler.py
 =================
-Next-day SL confirmation engine.
+Closing-basis SL + next-day confirmation engine.
 
 Responsibilities
 ----------------
+0. EVENING SESSION (after SL_EOD_CHECK_TIME, default 15:35 IST):
+     For each ACTIVE trade, closing LTP < Last_SL → mark SL_TRIGGER_PENDING
+     with Scheduled_Exit_Date = next trading day.  Intraday dips are ignored.
 1. Poll every 60 seconds (configurable via EXIT_SCHEDULER_INTERVAL env var).
 2. Load all SL_TRIGGER_PENDING trades.
 3. After 9:20 AM on the Scheduled_Exit_Date:
@@ -32,6 +35,8 @@ from datetime import datetime
 from typing import Optional
 
 from trade_s3 import (
+    load_active,
+    mark_sl_pending,
     load_sl_pending,
     restore_active,
     close_trade,
@@ -42,6 +47,8 @@ from trade_s3 import (
 from exit_utils import (
     ist_today,
     after_920,
+    after_eod_check,
+    get_next_trading_day,
     divider,
     market_open,
 )
@@ -203,15 +210,77 @@ def _execute_sl_exit(
 
 
 # ─────────────────────────────────────────────
+# EVENING SESSION — CLOSING-BASIS SL CHECK
+# ─────────────────────────────────────────────
+_eod_done_for: Optional[str] = None     # IST date the EOD check completed
+
+
+def _eod_sl_check(broker) -> None:
+    """
+    After the close: closing LTP < Last_SL → SL_TRIGGER_PENDING (exit next day).
+    Runs once per trading day; retried next cycle if any LTP fetch fails.
+    Restart-safe: already-pending trades are skipped (only ACTIVE checked).
+    """
+    global _eod_done_for
+    today = ist_today().strftime("%Y-%m-%d")
+    if _eod_done_for == today:
+        return
+
+    trades = [t for t in load_active() if t.get("Status") == "ACTIVE"]
+    divider("EOD SL CHECK (closing basis)")
+    log.info("[Scheduler] EOD SL check: %d ACTIVE trades", len(trades))
+
+    all_ok   = True
+    next_day = get_next_trading_day()
+    for t in trades:
+        symbol = t["Symbol"]
+        try:
+            close   = broker.get_ltp_with_retry("NSE", symbol, t["Angel_Token"], retries=3)
+            last_sl = float(t.get("Last_SL") or t["SL_Price"])
+        except Exception as e:
+            log.error("[Scheduler] EOD %s: %s — retry next cycle", symbol, e)
+            all_ok = False
+            continue
+        if not close:
+            log.error("[Scheduler] EOD %s: close price unavailable — retry next cycle", symbol)
+            all_ok = False
+            continue
+
+        if close < last_sl:
+            log.warning(
+                "[Scheduler] EOD SL BREACH %s  close=%.2f < sl=%.2f  "
+                "→ SL_TRIGGER_PENDING  validate on %s",
+                symbol, close, last_sl, next_day,
+            )
+            mark_sl_pending(
+                order_id            = t["Order_ID"],
+                pending_sl          = last_sl,
+                triggered_price     = close,
+                scheduled_exit_date = next_day,
+            )
+        else:
+            log.info("[Scheduler] EOD %s  close=%.2f >= sl=%.2f — holding", symbol, close, last_sl)
+
+    if all_ok:
+        _eod_done_for = today
+        log.info("[Scheduler] EOD SL check complete for %s", today)
+
+
+# ─────────────────────────────────────────────
 # MAIN POLL CYCLE
 # ─────────────────────────────────────────────
 def _run_cycle(broker) -> None:
     """
     Called every SCHEDULER_POLL_SECS.
-    Only acts after 9:20 AM on trading days.
+      • after 15:35          → closing-basis SL check (evening session)
+      • 09:20 – 15:30        → next-day validation / exit of pending SLs
     """
-    if not after_920():
-        log.debug("[Scheduler] before 9:20 AM — skipping cycle")
+    if after_eod_check():
+        _eod_sl_check(broker)
+        return
+
+    if not (after_920() and market_open()):
+        log.debug("[Scheduler] outside 09:20–15:30 — no exits")
         return
 
     pending_trades = load_sl_pending()

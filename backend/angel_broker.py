@@ -11,10 +11,9 @@ CSV schema: symbol, token, margin
   RELIANCE-EQ, 3045, 5
   INFY-EQ,     1594, 1
 """
-import io, os, time, json, logging, threading
+import io, os, csv, time, json, logging, threading
 from typing import Optional
 import pyotp, boto3
-import pandas as pd
 from SmartApi import SmartConnect
 from decimal import Decimal
 
@@ -76,29 +75,21 @@ class AngelBroker:
         _div("TOKEN MAP LOAD")
         log.info("[TokenMap] bucket=%s  key=%s", self.bucket, TOKEN_S3_KEY)
         try:
-            obj = self._s3.get_object(Bucket=self.bucket, Key=TOKEN_S3_KEY)
-            df  = pd.read_csv(io.BytesIO(obj["Body"].read()))
+            obj    = self._s3.get_object(Bucket=self.bucket, Key=TOKEN_S3_KEY)
+            reader = csv.DictReader(io.StringIO(obj["Body"].read().decode("utf-8-sig")))
 
-            # ✅ Normalize everything
-            df.columns = [c.strip().lower() for c in df.columns]
-
-            df["symbol"] = (
-                df["symbol"]
-                .astype(str)
-                .str.upper()
-                .str.strip()
-                .str.replace(r"\s+", "", regex=True)   # remove hidden spaces
-            )
-
-            df["token"] = df["token"].astype(str).str.strip()
-
-            self.token_map = {
-                row["symbol"]: {
-                "token": row["token"],
-                "margin": float(row.get("margin", 1))
+            # ✅ Normalize headers + symbols (remove hidden spaces)
+            token_map = {}
+            for row in reader:
+                row = {(k or "").strip().lower(): (v or "").strip() for k, v in row.items()}
+                sym = "".join(row.get("symbol", "").upper().split())
+                if not sym:
+                    continue
+                token_map[sym] = {
+                    "token":  row.get("token", ""),
+                    "margin": float(row.get("margin") or 1),
                 }
-            for _, row in df.iterrows()
-            }
+            self.token_map = token_map
 
             log.info("[TokenMap] Loaded %d symbols", len(self.token_map))
 

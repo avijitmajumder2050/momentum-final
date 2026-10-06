@@ -28,11 +28,11 @@ def _ist_now():
 
 def _market_open() -> bool:
     n = _ist_now(); m = n.hour*60+n.minute
-    return n.weekday() < 5 and 555 <= m <= 1440   # testing
+    return n.weekday() < 5 and 555 <= m <= 930    # 09:15–15:30 IST
 
 def _after_931() -> bool:
     n = _ist_now(); m = n.hour*60+n.minute
-    return n.weekday() < 5 and 561 <= m <= 1440   # testing
+    return n.weekday() < 5 and 571 <= m <= 930    # 09:31–15:30 IST
 
 
 class BreakoutMonitor:
@@ -89,7 +89,7 @@ class BreakoutMonitor:
             log.debug("[Monitor] [%s] market closed — skipping poll", now_str)
             return
 
-        log.info("[Monitor] ── POLL %s ────────────────────────────────────────", now_str)
+        log.debug("[Monitor] ── POLL %s ────────────────────────────────────────", now_str)
         from breakout_engine import run_breakout_engine
         from trade_executor  import execute_trade
 
@@ -117,7 +117,7 @@ class BreakoutMonitor:
         # Logging
         # ─────────────────────────────
         trades_today = count_auto_trades_today()
-        log.info(
+        log.debug(
             "[Monitor] auto_buy_enabled=%s | after_931=%s | auto_trades_today=%d/%d",
             self.auto_buy_enabled,
             _after_931(),

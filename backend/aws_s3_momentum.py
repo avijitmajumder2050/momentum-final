@@ -1,7 +1,5 @@
 # backend/aws_s3.py
 import boto3
-import pandas as pd
-import io
 import os
 import logging
 from botocore.exceptions import ClientError
@@ -40,20 +38,6 @@ def get_working_bucket():
 
 # Automatically determine bucket once
 S3_MOMENTUM_BUCKET = get_working_bucket()
-
-
-def read_csv_from_s3(bucket: str = None, key: str = "") -> pd.DataFrame:
-    bucket = bucket or S3_MOMENTUM_BUCKET
-
-    try:
-        obj = s3.get_object(Bucket=bucket, Key=key)
-        return pd.read_csv(io.BytesIO(obj["Body"].read()))
-    except s3.exceptions.NoSuchKey:
-        logging.error(f"S3 key not found: s3://{bucket}/{key}")
-        return pd.DataFrame()
-    except Exception as e:
-        logging.error(f"Error reading CSV from S3: {e}")
-        return pd.DataFrame()
 
 
 def list_s3_files(bucket: str = None, prefix: str = ""):

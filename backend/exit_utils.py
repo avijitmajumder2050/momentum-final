@@ -61,6 +61,18 @@ def after_920() -> bool:
     return is_trading_day() and mins >= (9 * 60 + 20)
 
 
+def after_eod_check() -> bool:
+    """
+    True on a trading day after the closing-basis SL check time
+    (SL_EOD_CHECK_TIME, default 15:35 IST — just after the 15:30 close).
+    """
+    import os
+    hh, mm = (int(x) for x in os.getenv("SL_EOD_CHECK_TIME", "15:35").split(":"))
+    n    = ist_now()
+    mins = n.hour * 60 + n.minute
+    return is_trading_day() and mins >= hh * 60 + mm
+
+
 def after_931() -> bool:
     """After 9:31 AM IST — used by breakout monitor."""
     n    = ist_now()

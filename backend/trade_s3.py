@@ -17,7 +17,7 @@ Initial_Qty | Remaining_Qty | Booked_Qty |
 Partial_Booked | Partial_Book_Time | Partial_Book_Price | Partial_Book_OrderId |
 Last_Target_Action | Last_Target_Time
 """
-import io, csv, os, logging, threading
+import io, csv, os, logging, functools, threading
 from datetime import datetime, date
 from typing import List, Dict, Optional
 import boto3
@@ -70,7 +70,9 @@ HEADERS = [
 _DEFAULTS = {h: "" for h in HEADERS}
 
 
+@functools.lru_cache(maxsize=None)
 def _s3():
+    """One shared client — boto3 clients are thread-safe and reuse connections."""
     return boto3.client("s3", region_name=os.getenv("AWS_REGION", "ap-south-1"))
 
 
@@ -334,7 +336,7 @@ def get_active_trade_by_symbol(symbol: str) -> Optional[Dict]:
             r["Symbol"].upper() == symbol.upper()
             and r["Status"] in ("ACTIVE", "SL_TRIGGER_PENDING")
         ):
-            log.info("[Trades] found active trade for %s  order_id=%s  rem_qty=%s",
+            log.debug("[Trades] found active trade for %s  order_id=%s  rem_qty=%s",
                      symbol, r["Order_ID"], r.get("Remaining_Qty"))
             return r
     return None
@@ -368,7 +370,7 @@ def _auto_trades_today() -> List[Dict]:
 def count_auto_trades_today() -> int:
     """Number of AUTO trades opened today (any status)."""
     n = len(_auto_trades_today())
-    log.info("[Trades] AUTO trades today = %d", n)
+    log.debug("[Trades] AUTO trades today = %d", n)
     return n
 
 

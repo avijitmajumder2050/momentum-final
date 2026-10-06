@@ -10,7 +10,9 @@ Trailing calculations (percentage based, env-tunable):
   Phase 2  : Trail     — SL = LTP * (1 - TRAIL_GAP_PCT), ratchets up only
 
 EXIT BEHAVIOR CHANGES:
-  SL breach    → mark_sl_pending()  (NO immediate sell)
+  SL breach    → CLOSING BASIS: intraday dips are ignored here; exit_scheduler
+               checks the closing price after 15:35 and marks
+               SL_TRIGGER_PENDING for next-day validation
   Target hit   → target_execution_engine handles this
 
 The engine continues polling while Status in (ACTIVE, SL_TRIGGER_PENDING).
@@ -28,10 +30,8 @@ from trade_s3 import (
     load_active,
     close_trade,
     update_trade,
-    mark_sl_pending,
     get_remaining_qty,
 )
-from exit_utils import get_next_trading_day
 
 log              = logging.getLogger(__name__)
 TRAIL_POLL_SECS  = int(os.getenv("TRAIL_POLL_SECS", "10"))
@@ -122,21 +122,14 @@ def process_trade(broker, trade: dict) -> None:
         process_target(broker, trade, ltp)
         return   # target engine takes full control this cycle
 
-    # ── 4. SL CHECK — NEXT-DAY CONFIRMATION (no immediate exit) ──────────────
+    # ── 4. SL CHECK — CLOSING BASIS (no intraday trigger, no immediate exit) ─
     if ltp < last_sl:
         if status == "ACTIVE":
-            # First breach — schedule next-day validation
-            next_day = get_next_trading_day()
-            log.warning(
-                "[Trail] SL BREACH %s  ltp=%.2f < sl=%.2f  "
-                "→ marking SL_TRIGGER_PENDING  next_validation=%s",
-                symbol, ltp, last_sl, next_day,
-            )
-            mark_sl_pending(
-                order_id        = order_id,
-                pending_sl      = last_sl,
-                triggered_price = ltp,
-                scheduled_exit_date = next_day,
+            # Intraday dip only — the closing price decides (exit_scheduler EOD check)
+            log.debug(
+                "[Trail] %s intraday below SL  ltp=%.2f < sl=%.2f  "
+                "— closing price will be checked after market close",
+                symbol, ltp, last_sl,
             )
         else:
             # Already pending — exit_scheduler.py handles this; just log
