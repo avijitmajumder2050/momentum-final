@@ -7,8 +7,6 @@ EC2 START / TERMINATE controller for Momentum Terminal.
 import json
 import os
 import logging
-import urllib.request
-from datetime import datetime, timezone
 import boto3
 from botocore.exceptions import ClientError
 
@@ -24,11 +22,6 @@ ELASTIC_IP       = "65.0.146.148"
 SSM_LT_KEY       = os.environ.get("SSM_LT_KEY",       "/trading-app-mtf/ec2/launch_template_id_toggle")
 SSM_INSTANCE_KEY = os.environ.get("SSM_INSTANCE_KEY", "/trading-app-mtf/ec2/instance_id")
 
-# While the app is still booting, report "pending" so the UI shows "Starting…".
-# The UI stops polling ~200s after ON, so after BOOT_GRACE_SECS report "running"
-# regardless (app_ready tells the truth either way).
-HEALTH_URL       = os.environ.get("HEALTH_URL", f"http://{ELASTIC_IP}:5000/health")
-BOOT_GRACE_SECS  = int(os.environ.get("BOOT_GRACE_SECS", "180"))
 MANUAL_TAG_KEY   = "manual-start"   # read by trading-app-mtf-mstock scheduler.py
 
 ec2 = boto3.client("ec2",  region_name=REGION)
@@ -146,19 +139,6 @@ def get_eip_instance_id():
 
 DEAD_STATES = ("terminated", "not_found", "shutting-down")
 
-def app_is_healthy():
-    try:
-        with urllib.request.urlopen(HEALTH_URL, timeout=2) as r:
-            return r.status == 200 and b"ok" in r.read(200)
-    except Exception:
-        return False
-
-def instance_age_secs(inst):
-    lt = inst.get("LaunchTime")
-    if not lt:
-        return 10**9
-    return (datetime.now(timezone.utc) - lt).total_seconds()
-
 def get_lt_instance_id():
     """Newest live instance launched from the toggle's launch template
     (covers a just-launched instance that has no EIP yet)."""
@@ -236,15 +216,15 @@ def action_status():
     if state in DEAD_STATES:
         return _ok({"success": True, "state": "stopped", "instance_id": None, "elastic_ip": ELASTIC_IP})
 
-    app_ready = False
+    ec2_state = state
     if state == "running":
         ensure_elastic_ip(instance_id)
-        app_ready = app_is_healthy()
-        if not app_ready and instance_age_secs(inst) < BOOT_GRACE_SECS:
-            state = "pending"          # EC2 up, app still booting → UI shows "Starting…"
+    elif state == "pending":
+        # Instance id exists → show the toggle ON right away (no app health check).
+        state = "running"
 
-    return _ok({"success": True, "state": state, "instance_id": instance_id,
-                "app_ready": app_ready, "elastic_ip": ELASTIC_IP})
+    return _ok({"success": True, "state": state, "ec2_state": ec2_state,
+                "instance_id": instance_id, "elastic_ip": ELASTIC_IP})
 
 
 def action_start():
@@ -259,7 +239,7 @@ def action_start():
     if existing:
         state = get_state(existing)
         if state in ("running", "pending"):
-            return _ok({"success": True, "action": "start", "instance_id": existing, "state": state, "already": True, "elastic_ip": ELASTIC_IP})
+            return _ok({"success": True, "action": "start", "instance_id": existing, "state": "running", "already": True, "elastic_ip": ELASTIC_IP})
         try:
             ec2.terminate_instances(InstanceIds=[existing])
         except ClientError as e:
@@ -271,7 +251,8 @@ def action_start():
 
     new_id = result["instance_id"]
     save_instance_id(new_id)
-    return _ok({"success": True, "action": "start", "instance_id": new_id, "state": "pending", "already": False, "elastic_ip": ELASTIC_IP})
+    # Instance id created → report "running" so the UI flips the toggle ON immediately.
+    return _ok({"success": True, "action": "start", "instance_id": new_id, "state": "running", "already": False, "elastic_ip": ELASTIC_IP})
 
 
 def action_terminate():
