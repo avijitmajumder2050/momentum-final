@@ -180,14 +180,25 @@ def action_status():
 
 
 def action_start():
+    """
+    ON: start the existing (stopped) instance — same disk, same EIP.
+    Only launches a fresh instance from the template when none exists.
+    """
     saved_id = resolve_instance_id()
     if saved_id:
         state = get_state(saved_id)
         if state in ("running", "pending"):
             return _ok({"success": True, "action": "start", "instance_id": saved_id, "state": state, "already": True, "elastic_ip": ELASTIC_IP})
-        if state not in ("terminated", "not_found"):
-            try: ec2.terminate_instances(InstanceIds=[saved_id])
-            except ClientError: pass
+        if state == "stopping":
+            return _bad("Instance is still stopping — try again in a minute")
+        if state == "stopped":
+            # Lambda timeout is 3s — don't wait. UI polls ?action=status, which
+            # re-attaches the EIP via ensure_elastic_ip() once state is "running".
+            try:
+                ec2.start_instances(InstanceIds=[saved_id])
+            except ClientError as e:
+                return _err(f"Start failed: {e}")
+            return _ok({"success": True, "action": "start", "instance_id": saved_id, "state": "pending", "already": False, "elastic_ip": ELASTIC_IP})
 
     result = launch_ec2()
     if result["status"] != "success":
@@ -196,6 +207,24 @@ def action_start():
     new_id = result["instance_id"]
     save_instance_id(new_id)
     return _ok({"success": True, "action": "start", "instance_id": new_id, "state": "pending", "already": False, "elastic_ip": ELASTIC_IP})
+
+
+def action_stop():
+    """OFF: stop (not terminate) the instance. Disk, EIP and instance_id are kept."""
+    instance_id = resolve_instance_id()
+    if not instance_id:
+        return _ok({"success": True, "action": "stop", "state": "stopped", "already": True})
+
+    state = get_state(instance_id)
+    if state in ("stopped", "stopping", "not_found", "terminated", "shutting-down"):
+        return _ok({"success": True, "action": "stop", "instance_id": instance_id, "state": "stopped", "already": True})
+
+    try:
+        ec2.stop_instances(InstanceIds=[instance_id])
+    except ClientError as e:
+        return _err(f"Stop failed: {e}")
+
+    return _ok({"success": True, "action": "stop", "instance_id": instance_id, "state": "stopping"})
 
 
 def action_terminate():
@@ -248,7 +277,10 @@ def lambda_handler(event, context):
         return action_status()
     elif action == "start":
         return action_start()
-    elif action in ("terminate", "stop"):
+    elif action in ("stop", "terminate"):
+        # UI toggle OFF sends "terminate" — now a reversible stop.
+        return action_stop()
+    elif action == "terminate_hard":
         return action_terminate()
     else:
         return _bad(f"Unknown action '{action}'")
