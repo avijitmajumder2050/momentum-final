@@ -22,7 +22,7 @@ services:
       totpKey: ${totpKey:-}
       userid: ${userid:-}
       pin: ${pin:-}
-      S3_BUCKET: ${S3_BUCKET:-your-momentum-bucket}
+      S3_BUCKET: ${S3_BUCKET:-new-momentum-watchlist-bucket}
       TRADING_CAPITAL: ${TRADING_CAPITAL:-100000}
 
     # ❌ REMOVE in EC2 (important)
