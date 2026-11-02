@@ -29,6 +29,7 @@ SSM_INSTANCE_KEY = os.environ.get("SSM_INSTANCE_KEY", "/trading-app-mtf/ec2/inst
 # regardless (app_ready tells the truth either way).
 HEALTH_URL       = os.environ.get("HEALTH_URL", f"http://{ELASTIC_IP}:5000/health")
 BOOT_GRACE_SECS  = int(os.environ.get("BOOT_GRACE_SECS", "180"))
+MANUAL_TAG_KEY   = "manual-start"   # read by trading-app-mtf-mstock scheduler.py
 
 ec2 = boto3.client("ec2",  region_name=REGION)
 ssm = boto3.client("ssm",  region_name=REGION)
@@ -200,8 +201,25 @@ def launch_ec2():
     lt_id = get_launch_template_id()
     if not lt_id:
         return {"status": "failed", "error": "Launch Template ID not found"}
+    # Tag manual (toggle) launches so the MTF scanner on the box skips its
+    # session-end self-terminate. Template tags (e.g. Name) are copied in,
+    # since request TagSpecifications can replace the template's for "instance".
+    tags = {}
     try:
-        response = ec2.run_instances(LaunchTemplate={"LaunchTemplateId": lt_id, "Version": "$Latest"}, MinCount=1, MaxCount=1)
+        d = ec2.describe_launch_template_versions(LaunchTemplateId=lt_id, Versions=["$Latest"])
+        for spec in d["LaunchTemplateVersions"][0]["LaunchTemplateData"].get("TagSpecifications", []):
+            if spec.get("ResourceType") == "instance":
+                tags.update({t["Key"]: t["Value"] for t in spec.get("Tags", [])})
+    except Exception as e:
+        logger.warning(f"Could not read launch template tags: {e}")
+    tags[MANUAL_TAG_KEY] = "true"
+    try:
+        response = ec2.run_instances(
+            LaunchTemplate={"LaunchTemplateId": lt_id, "Version": "$Latest"},
+            MinCount=1, MaxCount=1,
+            TagSpecifications=[{"ResourceType": "instance",
+                                "Tags": [{"Key": k, "Value": v} for k, v in tags.items()]}],
+        )
         return {"status": "success", "instance_id": response["Instances"][0]["InstanceId"]}
     except Exception as e:
         return {"status": "failed", "error": str(e)}
