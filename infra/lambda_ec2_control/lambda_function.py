@@ -135,22 +135,45 @@ def get_eip_instance_id():
         logger.error(f"❌ EIP lookup error: {e}")
         return None
 
+DEAD_STATES = ("terminated", "not_found", "shutting-down")
+
+def get_lt_instance_id():
+    """Newest live instance launched from the toggle's launch template
+    (covers a just-launched instance that has no EIP yet)."""
+    lt_id = get_launch_template_id()
+    if not lt_id:
+        return None
+    try:
+        r = ec2.describe_instances(Filters=[
+            {"Name": "tag:aws:ec2launchtemplate:id", "Values": [lt_id]},
+            {"Name": "instance-state-name", "Values": ["pending", "running", "stopping", "stopped"]},
+        ])
+        insts = [i for res in r.get("Reservations", []) for i in res.get("Instances", [])]
+        if not insts:
+            return None
+        return max(insts, key=lambda i: i["LaunchTime"])["InstanceId"]
+    except Exception as e:
+        logger.error(f"❌ LT instance lookup error: {e}")
+        return None
+
 def resolve_instance_id():
     """
-    Saved SSM instance_id if it is still alive; otherwise fall back to the
-    instance holding the Elastic IP and re-save it, so instances started
-    outside this Lambda (scheduled launches) are still tracked.
+    Live instance to report/control, in order:
+      1. saved SSM instance_id (if still alive)
+      2. instance holding the Elastic IP (scheduled launches)
+      3. newest instance from the launch template (just launched, no EIP yet)
+    Returns None when nothing is alive.
     """
     saved_id = get_saved_instance_id()
-    if saved_id and get_state(saved_id) not in ("terminated", "not_found", "shutting-down"):
+    if saved_id and get_state(saved_id) not in DEAD_STATES:
         return saved_id
-    eip_id = get_eip_instance_id()
-    if eip_id and get_state(eip_id) not in ("terminated", "not_found", "shutting-down"):
-        if eip_id != saved_id:
-            logger.info(f"🔁 Adopting EIP instance {eip_id} (saved was {saved_id})")
-            save_instance_id(eip_id)
-        return eip_id
-    return saved_id or None
+    for found in (get_eip_instance_id(), get_lt_instance_id()):
+        if found and get_state(found) not in DEAD_STATES:
+            if found != saved_id:
+                logger.info(f"🔁 Adopting instance {found} (saved was {saved_id})")
+                save_instance_id(found)
+            return found
+    return None
 
 def launch_ec2():
     lt_id = get_launch_template_id()
@@ -170,7 +193,7 @@ def action_status():
         return _ok({"success": True, "state": "stopped", "instance_id": None, "elastic_ip": ELASTIC_IP})
 
     state = get_state(instance_id)
-    if state in ("terminated", "not_found"):
+    if state in DEAD_STATES:
         return _ok({"success": True, "state": "stopped", "instance_id": None, "elastic_ip": ELASTIC_IP})
 
     if state == "running":
@@ -181,24 +204,21 @@ def action_status():
 
 def action_start():
     """
-    ON: start the existing (stopped) instance — same disk, same EIP.
-    Only launches a fresh instance from the template when none exists.
+    ON: launch a NEW instance from the launch template.
+    If one is already running/pending, return it instead of launching a second.
+    A leftover stopped instance is terminated first.
+    The EIP is attached by the template's user data and by action_status()
+    once the instance reaches "running" (Lambda timeout is short — no waiting here).
     """
-    saved_id = resolve_instance_id()
-    if saved_id:
-        state = get_state(saved_id)
+    existing = resolve_instance_id()
+    if existing:
+        state = get_state(existing)
         if state in ("running", "pending"):
-            return _ok({"success": True, "action": "start", "instance_id": saved_id, "state": state, "already": True, "elastic_ip": ELASTIC_IP})
-        if state == "stopping":
-            return _bad("Instance is still stopping — try again in a minute")
-        if state == "stopped":
-            # Lambda timeout is 3s — don't wait. UI polls ?action=status, which
-            # re-attaches the EIP via ensure_elastic_ip() once state is "running".
-            try:
-                ec2.start_instances(InstanceIds=[saved_id])
-            except ClientError as e:
-                return _err(f"Start failed: {e}")
-            return _ok({"success": True, "action": "start", "instance_id": saved_id, "state": "pending", "already": False, "elastic_ip": ELASTIC_IP})
+            return _ok({"success": True, "action": "start", "instance_id": existing, "state": state, "already": True, "elastic_ip": ELASTIC_IP})
+        try:
+            ec2.terminate_instances(InstanceIds=[existing])
+        except ClientError as e:
+            logger.warning(f"Could not terminate leftover {existing}: {e}")
 
     result = launch_ec2()
     if result["status"] != "success":
@@ -207,24 +227,6 @@ def action_start():
     new_id = result["instance_id"]
     save_instance_id(new_id)
     return _ok({"success": True, "action": "start", "instance_id": new_id, "state": "pending", "already": False, "elastic_ip": ELASTIC_IP})
-
-
-def action_stop():
-    """OFF: stop (not terminate) the instance. Disk, EIP and instance_id are kept."""
-    instance_id = resolve_instance_id()
-    if not instance_id:
-        return _ok({"success": True, "action": "stop", "state": "stopped", "already": True})
-
-    state = get_state(instance_id)
-    if state in ("stopped", "stopping", "not_found", "terminated", "shutting-down"):
-        return _ok({"success": True, "action": "stop", "instance_id": instance_id, "state": "stopped", "already": True})
-
-    try:
-        ec2.stop_instances(InstanceIds=[instance_id])
-    except ClientError as e:
-        return _err(f"Stop failed: {e}")
-
-    return _ok({"success": True, "action": "stop", "instance_id": instance_id, "state": "stopping"})
 
 
 def action_terminate():
@@ -277,10 +279,8 @@ def lambda_handler(event, context):
         return action_status()
     elif action == "start":
         return action_start()
-    elif action in ("stop", "terminate"):
-        # UI toggle OFF sends "terminate" — now a reversible stop.
-        return action_stop()
-    elif action == "terminate_hard":
+    elif action in ("terminate", "stop"):
+        # UI toggle OFF → terminate the EC2.
         return action_terminate()
     else:
         return _bad(f"Unknown action '{action}'")
