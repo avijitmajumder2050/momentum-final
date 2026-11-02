@@ -54,7 +54,7 @@ put_secure "/momentum-watchlist/totpKey" "$totpKey"
 put_secure "/momentum-watchlist/userid" "$userid"
 put_secure "/momentum-watchlist/pin" "$pin"
 
-put_string "/momentum-watchlist/S3_BUCKET" "momentum-watchlist-bucket"
+put_string "/momentum-watchlist/S3_BUCKET" "new-momentum-watchlist-bucket"
 put_string "/momentum-watchlist/trading-capital" "${TRADING_CAPITAL:-100000}"
 put_string "/momentum-watchlist/max-loss" "${MAX_LOSS:-1000}"
 put_string "/momentum-watchlist/github_repo" "$GITHUB_REPO"

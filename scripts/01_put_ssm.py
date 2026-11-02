@@ -51,7 +51,7 @@ def main():
     put_param("/momentum-watchlist/userid", os.getenv("userid"))
     put_param("/momentum-watchlist/pin", os.getenv("pin"))
 
-    put_param("/momentum-watchlist/S3_BUCKET", "momentum-watchlist-bucket", secure=False)
+    put_param("/momentum-watchlist/S3_BUCKET", "new-momentum-watchlist-bucket", secure=False)
     put_param("/momentum-watchlist/trading-capital", os.getenv("TRADING_CAPITAL", "100000"), secure=False)
     put_param("/momentum-watchlist/max-loss", os.getenv("MAX_LOSS", "1000"), secure=False)
     put_param("/momentum-watchlist/github_repo", os.getenv("GITHUB_REPO", ""), secure=False)

@@ -7,12 +7,11 @@ from botocore.exceptions import ClientError
 AWS_REGION = os.getenv("AWS_REGION", "ap-south-1")
 
 # Primary bucket from env (if provided)
-DEFAULT_BUCKET = os.getenv("S3_BUCKET", "momentum-watchlist-bucket")
+DEFAULT_BUCKET = os.getenv("S3_BUCKET") or "new-momentum-watchlist-bucket"
 
 # Buckets to try
 BUCKET_CANDIDATES = [
     DEFAULT_BUCKET,
-    "momentum-watchlist-bucket",
     "new-momentum-watchlist-bucket",
 ]
 

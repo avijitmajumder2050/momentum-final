@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BUCKET="momentum-watchlist-bucket"
+BUCKET="new-momentum-watchlist-bucket"
 REGION="ap-south-1"
 
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)

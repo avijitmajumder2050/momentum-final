@@ -55,7 +55,8 @@ class AngelBroker:
         self._s3  = boto3.client("s3",  region_name=os.getenv("AWS_REGION","ap-south-1"))
 
         self.bucket    = (os.getenv("S3_BUCKET")
-                          or self._ssm_param("/momentum-watchlist/S3_BUCKET"))
+                          or self._ssm_param("/momentum-watchlist/S3_BUCKET")
+                          or "new-momentum-watchlist-bucket")
         self.token_map: dict = {}
         self.reload_token_map()
         self._login()
