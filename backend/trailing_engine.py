@@ -26,6 +26,7 @@ import math
 from datetime import datetime
 from typing import Optional
 
+from symbol_resolver import trade_ltp
 from trade_s3 import (
     load_active,
     close_trade,
@@ -72,19 +73,13 @@ def process_trade(broker, trade: dict) -> None:
     Trailing calc  : UNCHANGED Phase 1 + Phase 2
     """
     order_id = trade["Order_ID"]
-    symbol   = trade["Symbol"]
-    token    = trade["Angel_Token"]
 
-    # ── 1. Fetch live LTP ─────────────────────────────────────────────────────
-    try:
-        ltp_resp = broker.get_ltp("NSE", symbol, token)
-        ltp = (
-            float(ltp_resp)
-            if isinstance(ltp_resp, (int, float))
-            else float(ltp_resp["data"]["ltp"])
-        )
-    except Exception as e:
-        log.warning("[Trail] LTP failed %s: %s", symbol, e)
+    # ── 1. Fetch live LTP (re-resolves a dead token after an NSE series change) ─
+    ltp = trade_ltp(broker, trade, retries=1)
+    symbol = trade["Symbol"]          # may have been healed (e.g. -BE → -EQ)
+    token  = trade["Angel_Token"]
+    if not ltp:
+        log.warning("[Trail] LTP failed %s — skipping cycle", symbol)
         return
 
     # ── 2. Parse trade fields ─────────────────────────────────────────────────

@@ -44,6 +44,7 @@ from trade_s3 import (
     record_partial_booking,
     get_remaining_qty,
 )
+from symbol_resolver import trade_ltp
 from exit_utils import (
     ist_today,
     after_920,
@@ -128,7 +129,7 @@ def _execute_sl_validation(
 
     # ── Fetch LTP ─────────────────────────────────────────────────────────────
     try:
-        ltp = broker.get_ltp_with_retry("NSE", symbol, token, retries=5)
+        ltp = trade_ltp(broker, trade, retries=5)
     except Exception as e:
         log.error("[Scheduler] LTP fetch failed %s: %s — deferring", symbol, e)
         return
@@ -137,6 +138,7 @@ def _execute_sl_validation(
         log.error("[Scheduler] %s  LTP unavailable — deferring exit", symbol)
         return
 
+    symbol = trade["Symbol"]          # may have been healed
     log.info(
         "[Scheduler] %s  ltp=%.2f  pending_sl=%.2f",
         symbol, ltp, pending_sl,
@@ -235,7 +237,8 @@ def _eod_sl_check(broker) -> None:
     for t in trades:
         symbol = t["Symbol"]
         try:
-            close   = broker.get_ltp_with_retry("NSE", symbol, t["Angel_Token"], retries=3)
+            close   = trade_ltp(broker, t, retries=3)
+            symbol  = t["Symbol"]          # may have been healed
             last_sl = float(t.get("Last_SL") or t["SL_Price"])
         except Exception as e:
             log.error("[Scheduler] EOD %s: %s — retry next cycle", symbol, e)

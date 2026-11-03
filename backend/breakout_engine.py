@@ -22,6 +22,7 @@ from datetime import datetime
 from typing import List, Dict
 
 from watchlist_s3 import load_watchlist, save_watchlist
+from symbol_resolver import heal_watchlist_row
 
 log = logging.getLogger(__name__)
 
@@ -56,6 +57,14 @@ def run_breakout_engine(broker) -> List[Dict]:
     live_data = broker.get_bulk_ltp(instruments) if instruments else {}
     log.debug("[Breakout]   LTP resolved for %d/%d instruments",
              len(live_data), len(instruments))
+
+    # ── Step 1b: heal rows whose token is dead (NSE series change EQ↔BE…) ────
+    healed = [r for r in data
+              if r.get("Angel_Token") and r["Symbol"] not in live_data
+              and heal_watchlist_row(broker, r)]
+    if healed:
+        live_data.update(broker.get_bulk_ltp(
+            [{"symboltoken": r["Angel_Token"], "tradingsymbol": r["Symbol"]} for r in healed]))
 
     # ── Step 2: compute breakout + scoring ───────────────────────────────────
     log.debug("[Breakout] ── PER-SYMBOL ANALYSIS" )

@@ -49,6 +49,7 @@ from trade_s3            import (load_trades, load_active, close_trade,
                                   get_trade, record_partial_booking,
                                   get_remaining_qty)
 from breakout_engine     import run_breakout_engine
+from symbol_resolver     import heal_trade, trade_ltp
 from trade_executor      import execute_trade
 from breakout_monitor    import get_monitor, start_monitor
 from trailing_engine     import get_engine, start_engine
@@ -174,10 +175,8 @@ def api_active_trades():
         enriched = []
         for t in rows:
             r   = dict(t)
-            sym = t["Symbol"]
-            tok = t["Angel_Token"]
             try:
-                ltp = broker.get_ltp_with_retry("NSE", sym, tok, retries=2)
+                ltp = trade_ltp(broker, r, retries=2)   # heals a dead token in r + S3
                 r["ltp"] = ltp or 0
                 entry    = float(t["Entry_Price"])
                 rem_qty  = get_remaining_qty(t)
@@ -246,6 +245,7 @@ def api_manual_exit(order_id: str):
         return jsonify({"success": False, "error": "Trade already closed"}), 400
 
     broker    = get_broker()
+    heal_trade(broker, trade)          # NSE series change → sell under the live symbol
     sym       = trade["Symbol"]
     token     = trade["Angel_Token"]
     rem_qty   = get_remaining_qty(trade)
